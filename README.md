@@ -1,15 +1,52 @@
 # Claude University
 
-A study and practice project for the **Claude Certified Architect – Foundations** certification.
+**Interactive study dashboard for the Claude Certified Architect – Foundations certification.**
 
-## What this project helps with
-- Learning the Claude ecosystem across all 5 exam domains
-- Understanding architecture tradeoffs (not just vocabulary)
-- Practicing with scenario-based questions matching the exam format
-- Building production judgment through hands-on exercises
-- Tracking progress with domain-specific assessments
+A self-hosted Node.js web app with curriculum modules, practice quizzes, progress tracking, and a searchable glossary — everything you need to prepare for the exam in one place.
+
+## Features
+
+- **Study Content** — 5 curriculum modules covering all 27 exam task statements, searchable glossary with 44 terms and domain filtering, 4-phase study plan with persistent checkpoints
+- **Practice & Assessment** — 57 practice questions (39 domain-specific + 18 scenario-based), interactive quiz engine with server-side answer validation and explanations
+- **Progress Tracking** — Domain mastery rings, study streak counter, section completion checkmarks, persistent progress across sessions
+- **Hands-On Exercises** — 4 practical exercises with checkable success criteria
+- **7 Interactive Views** — Dashboard, Programs, Curriculum, Assessments, Glossary, Study Plan, Exercises
+
+## Getting Started
+
+### Prerequisites
+
+- [Node.js](https://nodejs.org/) 18 or later
+
+### Installation
+
+```bash
+git clone https://github.com/professorlessmuda/claudeuniversity.git
+cd claudeuniversity
+npm install
+```
+
+### Run
+
+```bash
+npm start
+```
+
+Then visit [http://localhost:3009](http://localhost:3009) in your browser.
+
+**Windows users:** Double-click `START.bat` to launch the server.
+
+**Development mode** (auto-restart on file changes):
+
+```bash
+npm run dev
+```
+
+Set the `PORT` environment variable to change the default port (3009).
 
 ## Exam Overview
+
+The certification exam covers 5 domains with the following weights:
 
 | Domain | Name | Weight |
 |--------|------|--------|
@@ -21,7 +58,18 @@ A study and practice project for the **Claude Certified Architect – Foundation
 
 Passing score: 720/1000. Format: multiple-choice, scenario-based. Each exam presents 4 of 6 possible scenarios.
 
-## File Index
+## Project Structure
+
+```
+├── server.js            Express server (port 3009)
+├── public/
+│   ├── index.html       Single-page app shell
+│   └── app.js           Frontend logic (views, quiz engine, progress)
+├── package.json         Node.js dependencies and scripts
+├── docs_*.md            Reference documentation
+├── curriculum_*.md      Study modules (5 files)
+└── assessments_*.md     Practice questions (7 files)
+```
 
 ### Reference Docs
 | File | Description |
@@ -55,10 +103,36 @@ Passing score: 720/1000. Format: multiple-choice, scenario-based. Each exam pres
 
 **Total: 57 practice questions** covering all 27 task statements.
 
-## How to Use
+## Tech Stack
+
+- **Runtime:** Node.js
+- **Server:** Express.js
+- **Markdown Parsing:** marked
+- **Frontend:** Vanilla JS, CSS (dark aurora theme), single-page app
+- **Persistence:** JSON files (no database required)
+
+## Study Guide
 
 1. Start with `docs_learning-path.md` for the recommended study order
 2. Study one curriculum module at a time, starting with Module 01 (highest weight)
 3. After each module, take the corresponding domain assessment
 4. Use `docs_cross-reference-map.md` to find related content when stuck
 5. Finish with `assessments_exam-scenarios.md` for exam simulation
+
+The dashboard's **Study Plan** view tracks these same steps interactively with persistent checkpoints.
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/your-feature`)
+3. Commit your changes (`git commit -m 'Add your feature'`)
+4. Push to the branch (`git push origin feature/your-feature`)
+5. Open a Pull Request
+
+**Guidelines:**
+- New practice questions should follow the existing format in `assessments_domain-*` files
+- Curriculum additions should reference task statement IDs (e.g., "Task 2.1")
+
+## License
+
+TBD
