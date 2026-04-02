@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="40" height="40">
+  <!-- Globe outline -->
+  <circle cx="50" cy="50" r="46" fill="none" stroke="#4a7c59" stroke-width="3"/>
+  <!-- Landmasses (stylized) -->
+  <path d="M30 25 Q35 20 42 22 Q48 24 50 30 Q52 36 48 40 Q44 44 38 42 Q32 40 28 35 Q26 30 30 25Z" fill="#8fad7f" opacity="0.8"/>
+  <path d="M55 18 Q62 16 68 20 Q72 24 70 30 Q68 34 62 32 Q58 30 56 24 Q54 20 55 18Z" fill="#8fad7f" opacity="0.8"/>
+  <path d="M35 50 Q40 48 46 52 Q50 56 48 62 Q44 68 38 70 Q32 68 28 62 Q26 56 30 52 Q32 50 35 50Z" fill="#8fad7f" opacity="0.8"/>
+  <path d="M58 45 Q64 42 70 46 Q74 50 72 56 Q68 60 62 58 Q56 54 58 48 Q58 46 58 45Z" fill="#8fad7f" opacity="0.8"/>
+  <path d="M42 75 Q48 72 54 76 Q58 80 54 84 Q48 86 44 82 Q40 78 42 75Z" fill="#8fad7f" opacity="0.8"/>
+  <!-- Latitude lines -->
+  <ellipse cx="50" cy="50" rx="46" ry="16" fill="none" stroke="#4a7c59" stroke-width="1" opacity="0.3"/>
+  <ellipse cx="50" cy="50" rx="46" ry="34" fill="none" stroke="#4a7c59" stroke-width="1" opacity="0.3"/>
+  <!-- Longitude line -->
+  <ellipse cx="50" cy="50" rx="18" ry="46" fill="none" stroke="#4a7c59" stroke-width="1" opacity="0.3"/>
+</svg>

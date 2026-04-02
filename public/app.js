@@ -35,11 +35,11 @@ async function api(path, options = {}) {
 // --------------- Domain metadata ---------------
 
 const DOMAIN_COLORS = {
-  1: '#FF6B6B',
-  2: '#4ECDC4',
-  3: '#45B7D1',
-  4: '#96CEB4',
-  5: '#FFEAA7'
+  1: '#4a7c59',
+  2: '#5b9aa0',
+  3: '#7b8f6a',
+  4: '#c4956a',
+  5: '#8a7e6b'
 };
 
 const DOMAIN_NAMES = {
@@ -58,12 +58,12 @@ function progressRing(percent, color, size = 90, strokeWidth = 7) {
   const c = 2 * Math.PI * r;
   const offset = c - (p / 100) * c;
   return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-    <circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="${strokeWidth}" />
+    <circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="rgba(0,0,0,0.06)" stroke-width="${strokeWidth}" />
     <circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="${color}" stroke-width="${strokeWidth}"
       stroke-dasharray="${c}" stroke-dashoffset="${offset}" stroke-linecap="round"
       transform="rotate(-90 ${size / 2} ${size / 2})" style="transition: stroke-dashoffset 0.8s ease" />
     <text x="${size / 2}" y="${size / 2}" text-anchor="middle" dominant-baseline="central"
-      font-family="Syne" font-weight="800" font-size="${size / 4.5}px" fill="${color}">${p}%</text>
+      font-family="Quicksand" font-weight="800" font-size="${size / 4.5}px" fill="${color}">${p}%</text>
   </svg>`;
 }
 
@@ -199,11 +199,11 @@ async function loadDashboard() {
       html += '<thead><tr style="text-align:left;opacity:0.6"><th style="padding:8px">Date</th><th style="padding:8px">Type</th><th style="padding:8px">Score</th><th style="padding:8px">%</th></tr></thead><tbody>';
       d.recentQuizzes.slice(0, 10).forEach(q => {
         const pct = q.percentage != null ? q.percentage : (q.total ? Math.round(q.score / q.total * 100) : 0);
-        html += `<tr style="border-top:1px solid rgba(255,255,255,0.06)">
+        html += `<tr style="border-top:1px solid rgba(0,0,0,0.06)">
           <td style="padding:8px">${esc(formatDate(q.date))}</td>
           <td style="padding:8px">${esc(q.type || q.domain || '')}</td>
           <td style="padding:8px">${q.score}/${q.total}</td>
-          <td style="padding:8px;color:${pct >= 70 ? '#4ECDC4' : '#FF6B6B'}">${pct}%</td>
+          <td style="padding:8px;color:${pct >= 70 ? '#4a7c59' : '#e05260'}">${pct}%</td>
         </tr>`;
       });
       html += '</tbody></table>';
@@ -235,7 +235,7 @@ async function loadDashboard() {
       });
     }
   } catch (err) {
-    el.innerHTML = `<p style="color:#FF6B6B">Error loading dashboard: ${esc(err.message)}</p>`;
+    el.innerHTML = `<p style="color:#e05260">Error loading dashboard: ${esc(err.message)}</p>`;
   }
 }
 
@@ -276,7 +276,7 @@ async function loadPrograms() {
       if (!p.builtIn) {
         html += `<div class="flex gap-12" style="margin-top:16px">
           <button class="btn-secondary add-module-btn" data-id="${esc(String(p.id))}">+ Add Module</button>
-          <button class="btn-secondary delete-program-btn" data-id="${esc(String(p.id))}" style="color:#FF6B6B">Delete</button>
+          <button class="btn-secondary delete-program-btn" data-id="${esc(String(p.id))}" style="color:#e05260">Delete</button>
         </div>`;
       }
 
@@ -340,7 +340,7 @@ async function loadPrograms() {
       });
     });
   } catch (err) {
-    el.innerHTML = `<p style="color:#FF6B6B">Error loading programs: ${esc(err.message)}</p>`;
+    el.innerHTML = `<p style="color:#e05260">Error loading programs: ${esc(err.message)}</p>`;
   }
 }
 
@@ -377,7 +377,7 @@ async function loadCurriculumList() {
           <span class="domain-pill" style="background:${color};color:#000;margin-left:8px;white-space:nowrap;padding:2px 8px;border-radius:12px;font-size:0.75rem;font-weight:700">D${domainNum}</span>
         </div>
         <p class="text-muted" style="font-size:0.85rem;margin-bottom:12px">Weight: ${m.weight || 0}%</p>
-        <div style="background:rgba(255,255,255,0.06);border-radius:6px;height:8px;margin-bottom:16px;overflow:hidden">
+        <div style="background:rgba(0,0,0,0.06);border-radius:6px;height:8px;margin-bottom:16px;overflow:hidden">
           <div style="width:${pct}%;height:100%;background:${color};border-radius:6px;transition:width 0.5s ease"></div>
         </div>
         <div class="flex gap-12" style="justify-content:space-between;align-items:center">
@@ -398,7 +398,7 @@ async function loadCurriculumList() {
       });
     });
   } catch (err) {
-    el.innerHTML = `<p style="color:#FF6B6B">Error loading curriculum: ${esc(err.message)}</p>`;
+    el.innerHTML = `<p style="color:#e05260">Error loading curriculum: ${esc(err.message)}</p>`;
   }
 }
 
@@ -515,7 +515,7 @@ async function loadCurriculumReader(moduleId) {
       });
     });
   } catch (err) {
-    el.innerHTML = `<p style="color:#FF6B6B">Error loading module: ${esc(err.message)}</p>`;
+    el.innerHTML = `<p style="color:#e05260">Error loading module: ${esc(err.message)}</p>`;
   }
 }
 
@@ -558,7 +558,7 @@ async function loadAssessmentHub() {
           <h3>${esc(name)}</h3>
         </div>
         <p class="text-muted" style="font-size:0.85rem;margin-bottom:4px">${d.questionCount} questions</p>
-        <p style="font-size:0.85rem;margin-bottom:16px;color:${d.lastScore != null && d.lastScore >= 70 ? '#4ECDC4' : 'inherit'}">${esc(lastStr)}</p>
+        <p style="font-size:0.85rem;margin-bottom:16px;color:${d.lastScore != null && d.lastScore >= 70 ? '#4a7c59' : 'inherit'}">${esc(lastStr)}</p>
         <button class="btn-primary start-domain-quiz" data-domain="${num}">Start Quiz</button>
       </div>`;
     });
@@ -594,7 +594,7 @@ async function loadAssessmentHub() {
       startDomainQuiz(d);
     }
   } catch (err) {
-    el.innerHTML = `<p style="color:#FF6B6B">Error loading assessments: ${esc(err.message)}</p>`;
+    el.innerHTML = `<p style="color:#e05260">Error loading assessments: ${esc(err.message)}</p>`;
   }
 }
 
@@ -615,7 +615,7 @@ async function startDomainQuiz(domainNum) {
     assessmentState = 'quiz';
     renderQuizQuestion();
   } catch (err) {
-    el.innerHTML = `<p style="color:#FF6B6B">Error loading quiz: ${esc(err.message)}</p>`;
+    el.innerHTML = `<p style="color:#e05260">Error loading quiz: ${esc(err.message)}</p>`;
   }
 }
 
@@ -649,7 +649,7 @@ async function startExamSimulation() {
     assessmentState = 'quiz';
     renderQuizQuestion();
   } catch (err) {
-    el.innerHTML = `<p style="color:#FF6B6B">Error loading exam: ${esc(err.message)}</p>`;
+    el.innerHTML = `<p style="color:#e05260">Error loading exam: ${esc(err.message)}</p>`;
   }
 }
 
@@ -769,7 +769,7 @@ async function submitQuiz() {
     assessmentState = 'results';
     renderQuizResults();
   } catch (err) {
-    el.innerHTML = `<p style="color:#FF6B6B">Error submitting quiz: ${esc(err.message)}</p>`;
+    el.innerHTML = `<p style="color:#e05260">Error submitting quiz: ${esc(err.message)}</p>`;
   }
 }
 
@@ -787,9 +787,9 @@ function renderQuizResults() {
 
   let html = `<div class="quiz-container">
     <div class="text-center mb-20">
-      ${progressRing(pct, pass ? '#4ECDC4' : '#FF6B6B', 140, 10)}
+      ${progressRing(pct, pass ? '#4a7c59' : '#e05260', 140, 10)}
       <h2 style="margin-top:12px">${r.score} / ${r.total}</h2>
-      <p style="font-size:1.1rem;margin-top:8px;color:${pass ? '#4ECDC4' : '#FF6B6B'};font-weight:700">${pass ? 'PASSED' : 'NEEDS REVIEW'}</p>
+      <p style="font-size:1.1rem;margin-top:8px;color:${pass ? '#4a7c59' : '#e05260'};font-weight:700">${pass ? 'PASSED' : 'NEEDS REVIEW'}</p>
       <p class="text-muted" style="font-size:0.85rem;margin-top:4px">${Math.round((Date.now() - quizState.startTime) / 1000)}s elapsed</p>
     </div>
 
@@ -797,7 +797,7 @@ function renderQuizResults() {
 
   if (r.answers && r.answers.length) {
     r.answers.forEach((a, i) => {
-      const icon = a.isCorrect ? '<span style="color:#4ECDC4;font-weight:700">&#10003;</span>' : '<span style="color:#FF6B6B;font-weight:700">&#10007;</span>';
+      const icon = a.isCorrect ? '<span style="color:#4a7c59;font-weight:700">&#10003;</span>' : '<span style="color:#e05260;font-weight:700">&#10007;</span>';
       html += `<div class="card" style="margin-bottom:12px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
           <span style="font-weight:600">Q${a.questionNum || i + 1}</span>
@@ -811,7 +811,7 @@ function renderQuizResults() {
 
       if (a.explanation) {
         html += `<details style="margin-top:8px">
-          <summary style="cursor:pointer;font-size:0.85rem;color:#45B7D1">Show Explanation</summary>
+          <summary style="cursor:pointer;font-size:0.85rem;color:#2a8f96">Show Explanation</summary>
           <p style="font-size:0.85rem;margin-top:8px;line-height:1.5;opacity:0.85">${esc(a.explanation)}</p>
         </details>`;
       }
@@ -867,12 +867,12 @@ async function showQuizHistory() {
       html += '<thead><tr style="text-align:left;opacity:0.6"><th style="padding:8px">Date</th><th style="padding:8px">Type</th><th style="padding:8px">Domain</th><th style="padding:8px">Score</th><th style="padding:8px">%</th></tr></thead><tbody>';
       history.forEach(q => {
         const pct = q.percentage != null ? q.percentage : (q.total ? Math.round(q.score / q.total * 100) : 0);
-        html += `<tr style="border-top:1px solid rgba(255,255,255,0.06)">
+        html += `<tr style="border-top:1px solid rgba(0,0,0,0.06)">
           <td style="padding:8px">${esc(formatDate(q.date))}</td>
           <td style="padding:8px">${esc(q.type || '')}</td>
           <td style="padding:8px">${q.domain ? DOMAIN_NAMES[q.domain] || `Domain ${q.domain}` : 'Mixed'}</td>
           <td style="padding:8px">${q.score}/${q.total}</td>
-          <td style="padding:8px;color:${pct >= 70 ? '#4ECDC4' : '#FF6B6B'}">${pct}%</td>
+          <td style="padding:8px;color:${pct >= 70 ? '#4a7c59' : '#e05260'}">${pct}%</td>
         </tr>`;
       });
       html += '</tbody></table>';
@@ -884,7 +884,7 @@ async function showQuizHistory() {
       loadAssessmentHub();
     });
   } catch (err) {
-    el.innerHTML = `<p style="color:#FF6B6B">Error loading history: ${esc(err.message)}</p>`;
+    el.innerHTML = `<p style="color:#e05260">Error loading history: ${esc(err.message)}</p>`;
   }
 }
 
@@ -905,7 +905,7 @@ async function loadGlossary() {
     glossaryDomainFilter = null;
     renderGlossary();
   } catch (err) {
-    el.innerHTML = `<p style="color:#FF6B6B">Error loading glossary: ${esc(err.message)}</p>`;
+    el.innerHTML = `<p style="color:#e05260">Error loading glossary: ${esc(err.message)}</p>`;
   }
 }
 
@@ -1088,7 +1088,7 @@ async function loadStudyPlan() {
       });
     });
   } catch (err) {
-    el.innerHTML = `<p style="color:#FF6B6B">Error loading study plan: ${esc(err.message)}</p>`;
+    el.innerHTML = `<p style="color:#e05260">Error loading study plan: ${esc(err.message)}</p>`;
   }
 }
 
@@ -1138,13 +1138,13 @@ async function loadExercises() {
               <span style="font-size:1.2rem;transition:transform 0.2s;transform:rotate(${isExpanded ? '180' : '0'}deg)">&#9660;</span>
             </div>
           </div>
-          <div style="background:rgba(255,255,255,0.06);border-radius:6px;height:6px;margin-top:10px;overflow:hidden">
-            <div style="width:${pct}%;height:100%;background:#4ECDC4;border-radius:6px;transition:width 0.5s ease"></div>
+          <div style="background:rgba(0,0,0,0.06);border-radius:6px;height:6px;margin-top:10px;overflow:hidden">
+            <div style="width:${pct}%;height:100%;background:#4a7c59;border-radius:6px;transition:width 0.5s ease"></div>
           </div>
         </div>`;
 
       if (isExpanded) {
-        html += `<div class="exercise-body" style="padding:16px 20px;border-top:1px solid rgba(255,255,255,0.06)">`;
+        html += `<div class="exercise-body" style="padding:16px 20px;border-top:1px solid rgba(0,0,0,0.06)">`;
         if (ex.html) {
           html += `<div class="md-body" style="margin-bottom:20px">${ex.html}</div>`;
         }
@@ -1187,7 +1187,7 @@ async function loadExercises() {
       });
     });
   } catch (err) {
-    el.innerHTML = `<p style="color:#FF6B6B">Error loading exercises: ${esc(err.message)}</p>`;
+    el.innerHTML = `<p style="color:#e05260">Error loading exercises: ${esc(err.message)}</p>`;
   }
 }
 
