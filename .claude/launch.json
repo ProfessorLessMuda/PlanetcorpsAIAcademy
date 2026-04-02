@@ -6,6 +6,13 @@
       "runtimeExecutable": "node",
       "runtimeArgs": ["server.js"],
       "port": 3009
+    },
+    {
+      "name": "launchpad",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["server.js"],
+      "cwd": "../00-LaunchPad",
+      "port": 3000
     }
   ]
 }

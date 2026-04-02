@@ -4,20 +4,109 @@ const path = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const { marked } = require('marked');
+const bcrypt = require('bcryptjs');
+const session = require('express-session');
+const FileStore = require('session-file-store')(session);
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 
 const app = express();
 const PORT = process.env.PORT || 3009;
 const ROOT = __dirname;
 const DATA_DIR = path.join(ROOT, 'data');
+const USERS_FILE = path.join(DATA_DIR, 'users.json');
+const SESSIONS_DIR = path.join(ROOT, 'sessions');
 
-app.use(express.json({ limit: '10mb' }));
+// ─── Security Middleware ────────────────────────────────────────────────────
+
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      imgSrc: ["'self'", "data:"],
+      scriptSrc: ["'self'"]
+    }
+  }
+}));
+
+// HTTPS redirect in production (Azure terminates SSL at load balancer)
+if (process.env.NODE_ENV === 'production') {
+  app.use((req, res, next) => {
+    if (req.headers['x-forwarded-proto'] !== 'https') {
+      return res.redirect('https://' + req.hostname + req.originalUrl);
+    }
+    next();
+  });
+}
+
+app.use(express.json({ limit: '1mb' }));
 app.use(express.static(path.join(ROOT, 'public')));
 
-// ─── DataStore — thin JSON persistence ──────────────────────────────────────
+// ─── Session Configuration ──────────────────────────────────────────────────
+
+if (!fs.existsSync(SESSIONS_DIR)) fs.mkdirSync(SESSIONS_DIR, { recursive: true });
+
+app.use(session({
+  store: new FileStore({
+    path: SESSIONS_DIR,
+    ttl: 86400 * 7,   // 7 days
+    retries: 0,
+    logFn: () => {}   // suppress noisy logs
+  }),
+  secret: process.env.SESSION_SECRET || 'dev-secret-change-in-production',
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    secure: process.env.NODE_ENV === 'production',
+    httpOnly: true,
+    maxAge: 1000 * 60 * 60 * 24 * 7,  // 7 days
+    sameSite: 'lax'
+  }
+}));
+
+// ─── Rate Limiting ──────────────────────────────────────────────────────────
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,  // 15 minutes
+  max: 10,                     // 10 attempts per window
+  message: { error: 'Too many attempts. Try again in 15 minutes.' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+// ─── User Store ─────────────────────────────────────────────────────────────
+
+function loadUsers() {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  if (!fs.existsSync(USERS_FILE)) {
+    fs.writeFileSync(USERS_FILE, '[]', 'utf8');
+    return [];
+  }
+  try {
+    return JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
+  } catch {
+    return [];
+  }
+}
+
+function saveUsers(users) {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), 'utf8');
+}
+
+// ─── Per-User DataStore ─────────────────────────────────────────────────────
+
+function getUserDataDir(userId) {
+  const dir = path.join(DATA_DIR, 'users', userId);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
 
 class DataStore {
-  constructor(filename, defaultData = []) {
-    this.filePath = path.join(DATA_DIR, filename);
+  constructor(baseDir, filename, defaultData = []) {
+    this.filePath = path.join(baseDir, filename);
     this.data = defaultData;
     this.load();
   }
@@ -33,7 +122,8 @@ class DataStore {
     }
   }
   save() {
-    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    const dir = path.dirname(this.filePath);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(this.filePath, JSON.stringify(this.data, null, 2), 'utf8');
   }
   getAll() { return this.data; }
@@ -61,10 +151,9 @@ class DataStore {
   query(fn) { return Array.isArray(this.data) ? this.data.filter(fn) : []; }
 }
 
-// ObjectStore for singleton objects (progress)
 class ObjectStore {
-  constructor(filename, defaultData = {}) {
-    this.filePath = path.join(DATA_DIR, filename);
+  constructor(baseDir, filename, defaultData = {}) {
+    this.filePath = path.join(baseDir, filename);
     this.data = defaultData;
     this.load();
   }
@@ -80,7 +169,8 @@ class ObjectStore {
     }
   }
   save() {
-    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    const dir = path.dirname(this.filePath);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(this.filePath, JSON.stringify(this.data, null, 2), 'utf8');
   }
   get() { return this.data; }
@@ -88,7 +178,7 @@ class ObjectStore {
   merge(partial) { this.data = { ...this.data, ...partial }; this.save(); return this.data; }
 }
 
-// ─── Initialize stores ──────────────────────────────────────────────────────
+// ─── Default data for new users ─────────────────────────────────────────────
 
 const defaultPrograms = [
   {
@@ -122,16 +212,107 @@ const defaultProgress = {
   exercises: {}
 };
 
-const stores = {
-  programs:    new DataStore('programs.json', defaultPrograms),
-  quizHistory: new DataStore('quiz-history.json', []),
-  notes:       new DataStore('notes.json', []),
-  progress:    new ObjectStore('progress.json', defaultProgress),
-};
+// ─── Per-user store factory ─────────────────────────────────────────────────
+
+// Cache open stores so we don't re-read files on every request
+const storeCache = {};
+
+function getUserStores(userId) {
+  if (storeCache[userId]) return storeCache[userId];
+  const dir = getUserDataDir(userId);
+  const stores = {
+    programs:    new DataStore(dir, 'programs.json', JSON.parse(JSON.stringify(defaultPrograms))),
+    quizHistory: new DataStore(dir, 'quiz-history.json', []),
+    notes:       new DataStore(dir, 'notes.json', []),
+    progress:    new ObjectStore(dir, 'progress.json', JSON.parse(JSON.stringify(defaultProgress))),
+  };
+  storeCache[userId] = stores;
+  return stores;
+}
+
+// ─── Authentication Middleware ───────────────────────────────────────────────
+
+function requireAuth(req, res, next) {
+  if (!req.session.userId) {
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+  req.stores = getUserStores(req.session.userId);
+  next();
+}
+
+// ─── Auth Routes ────────────────────────────────────────────────────────────
+
+app.post('/api/auth/register', authLimiter, async (req, res) => {
+  const { email, password, displayName } = req.body;
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password required' });
+  }
+  if (password.length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters' });
+  }
+  const emailLower = email.toLowerCase().trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailLower)) {
+    return res.status(400).json({ error: 'Invalid email format' });
+  }
+
+  const users = loadUsers();
+  if (users.find(u => u.email === emailLower)) {
+    return res.status(409).json({ error: 'Account already exists' });
+  }
+
+  const hash = await bcrypt.hash(password, 12);
+  const user = {
+    id: uuidv4(),
+    email: emailLower,
+    displayName: (displayName || emailLower.split('@')[0]).trim().slice(0, 50),
+    passwordHash: hash,
+    created: new Date().toISOString()
+  };
+  users.push(user);
+  saveUsers(users);
+
+  // Auto-login after registration
+  req.session.userId = user.id;
+  res.json({ id: user.id, email: user.email, displayName: user.displayName });
+});
+
+app.post('/api/auth/login', authLimiter, async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password required' });
+  }
+
+  const users = loadUsers();
+  const user = users.find(u => u.email === email.toLowerCase().trim());
+  if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
+    return res.status(401).json({ error: 'Invalid email or password' });
+  }
+
+  req.session.userId = user.id;
+  res.json({ id: user.id, email: user.email, displayName: user.displayName });
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  req.session.destroy(() => {
+    res.clearCookie('connect.sid');
+    res.json({ ok: true });
+  });
+});
+
+app.get('/api/auth/me', (req, res) => {
+  if (!req.session.userId) {
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+  const users = loadUsers();
+  const user = users.find(u => u.id === req.session.userId);
+  if (!user) {
+    return res.status(401).json({ error: 'User not found' });
+  }
+  res.json({ id: user.id, email: user.email, displayName: user.displayName });
+});
 
 // ─── Markdown parsers ────────────────────────────────────────────────────────
 
-// Cache parsed content at startup
 const contentCache = {
   modules: {},
   assessments: {},
@@ -148,7 +329,6 @@ function readMdFile(filename) {
   return fs.readFileSync(fp, 'utf8');
 }
 
-// Parse assessment questions from a domain file
 function parseAssessmentQuestions(md) {
   const questions = [];
   const blocks = md.split(/^---$/m).filter(b => b.trim());
@@ -175,11 +355,9 @@ function parseAssessmentQuestions(md) {
   return questions;
 }
 
-// Parse exam scenario questions (two-level: scenario > questions)
 function parseExamScenarios(md) {
   const scenarios = [];
   const scenarioBlocks = md.split(/^## Scenario \d+/m).filter(b => b.trim());
-  // Get scenario headers
   const headerMatches = [...md.matchAll(/^## Scenario (\d+):\s*(.+)$/gm)];
   for (let i = 0; i < headerMatches.length; i++) {
     const num = parseInt(headerMatches[i][1]);
@@ -189,7 +367,6 @@ function parseExamScenarios(md) {
     const context = contextMatch ? contextMatch[1].trim() : '';
     const domainsMatch = block.match(/\*\*Domains tested:\*\*\s*(.+)/);
     const domains = domainsMatch ? domainsMatch[1].trim() : '';
-    // Parse questions within this scenario
     const questions = [];
     const qBlocks = block.split(/^### Question/m).filter(b => b.trim());
     for (const qb of qBlocks) {
@@ -217,7 +394,6 @@ function parseExamScenarios(md) {
   return scenarios;
 }
 
-// Parse glossary entries
 function parseGlossary(md) {
   const entries = [];
   const lines = md.split('\n');
@@ -248,12 +424,10 @@ function buildGlossaryEntry(term, def) {
   const domains = [...new Set(domainMatches.map(m => parseInt(m[1])))];
   const taskMatches = [...def.matchAll(/Task\s*([\d.]+)/g)];
   const taskStatements = [...new Set(taskMatches.map(m => m[1]))];
-  // Remove the parenthetical reference from definition
   const cleanDef = def.replace(/\s*\([^)]*Domain[^)]*\)\s*$/, '').trim();
   return { term, definition: cleanDef, domains, taskStatements };
 }
 
-// Parse curriculum module for HTML + TOC
 function parseCurriculumModule(md) {
   const html = marked(md);
   const toc = [];
@@ -265,13 +439,11 @@ function parseCurriculumModule(md) {
     const id = m[2] || text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
     toc.push({ id, text, level });
   }
-  // Extract section IDs (task statement numbers like 1.1, 2.3, etc.)
   const sectionRegex = /### (\d+\.\d+)/g;
   const sections = [];
   while ((m = sectionRegex.exec(md)) !== null) {
     sections.push(m[1]);
   }
-  // Add IDs to headings in the HTML
   let htmlWithIds = html.replace(/<h([2-3])>(.+?)<\/h[2-3]>/g, (match, level, text) => {
     const id = text.replace(/<[^>]+>/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
     return `<h${level} id="${id}">${text}</h${level}>`;
@@ -279,7 +451,6 @@ function parseCurriculumModule(md) {
   return { html: htmlWithIds, toc, sections };
 }
 
-// Parse exercises from hands-on exercises file
 function parseExercises(md) {
   const exercises = [];
   const blocks = md.split(/^## Exercise \d+/m).filter(b => b.trim());
@@ -292,7 +463,6 @@ function parseExercises(md) {
     const domains = domainsMatch ? domainsMatch[1].trim() : '';
     const taskMatch = block.match(/\*\*Task statements:\*\*\s*(.+)/);
     const taskStatements = taskMatch ? taskMatch[1].trim() : '';
-    // Extract success criteria
     const criteria = [];
     const criteriaSection = block.match(/### Success Criteria\n([\s\S]*?)(?=\n---|\n## |$)/);
     if (criteriaSection) {
@@ -312,8 +482,7 @@ function parseExercises(md) {
 function loadContent() {
   console.log('Loading curriculum content...');
 
-  // Load modules
-  const programs = stores.programs.getAll();
+  const programs = defaultPrograms;
   const builtIn = programs.find(p => p.builtIn);
   if (builtIn) {
     for (const mod of builtIn.modules) {
@@ -327,7 +496,6 @@ function loadContent() {
     }
   }
 
-  // Load domain assessments
   for (let d = 1; d <= 5; d++) {
     const md = readMdFile(`assessments_domain-0${d}-questions.md`);
     if (md) {
@@ -335,19 +503,16 @@ function loadContent() {
     }
   }
 
-  // Load exam scenarios
   const scenarioMd = readMdFile('assessments_exam-scenarios.md');
   if (scenarioMd) {
     contentCache.scenarios = parseExamScenarios(scenarioMd);
   }
 
-  // Load glossary
   const glossaryMd = readMdFile('docs_key-concepts-glossary.md');
   if (glossaryMd) {
     contentCache.glossary = parseGlossary(glossaryMd);
   }
 
-  // Load exercises
   const exerciseMd = readMdFile('docs_hands-on-exercises.md');
   if (exerciseMd) {
     contentCache.exercises = parseExercises(exerciseMd);
@@ -363,7 +528,7 @@ function loadContent() {
 
 // ─── Activity tracking helper ───────────────────────────────────────────────
 
-function recordActivity() {
+function recordActivity(stores) {
   const progress = stores.progress.get();
   const today = new Date().toISOString().split('T')[0];
   if (!progress.streak) {
@@ -386,10 +551,15 @@ function recordActivity() {
   stores.progress.set(progress);
 }
 
-// ─── API: Stats (consumed by LaunchPad) ─────────────────────────────────────
+// ─── API: Stats (consumed by LaunchPad — no auth required) ──────────────────
 
 app.get('/api/stats', (req, res) => {
-  res.header('Access-Control-Allow-Origin', '*');
+  // Public endpoint for LaunchPad integration — returns aggregate stats
+  // If not logged in, return zeros
+  if (!req.session.userId) {
+    return res.json({ totalModules: 5, modulesCompleted: 0, quizzesTaken: 0, avgScore: 0, studyStreak: 0 });
+  }
+  const stores = getUserStores(req.session.userId);
   const progress = stores.progress.get();
   const quizHistory = stores.quizHistory.getAll();
   const modulesRead = Object.keys(progress.modulesRead || {});
@@ -406,9 +576,18 @@ app.get('/api/stats', (req, res) => {
   });
 });
 
+// ─── All remaining API routes require authentication ────────────────────────
+
+app.use('/api', (req, res, next) => {
+  // Skip auth routes and stats
+  if (req.path.startsWith('/auth/') || req.path === '/stats') return next();
+  requireAuth(req, res, next);
+});
+
 // ─── API: Dashboard ─────────────────────────────────────────────────────────
 
 app.get('/api/dashboard', (req, res) => {
+  const stores = req.stores;
   const progress = stores.progress.get();
   const quizHistory = stores.quizHistory.getAll();
   const domainNames = {
@@ -452,43 +631,53 @@ app.get('/api/dashboard', (req, res) => {
 // ─── API: Programs ──────────────────────────────────────────────────────────
 
 app.get('/api/programs', (req, res) => {
-  res.json(stores.programs.getAll());
+  res.json(req.stores.programs.getAll());
 });
 
 app.post('/api/programs', (req, res) => {
   const { name, description } = req.body;
-  if (!name) return res.status(400).json({ error: 'Name required' });
-  const program = stores.programs.add({
-    name, description: description || '',
+  if (!name || typeof name !== 'string' || name.trim().length === 0) {
+    return res.status(400).json({ error: 'Name required' });
+  }
+  const program = req.stores.programs.add({
+    name: name.trim().slice(0, 200),
+    description: (description || '').trim().slice(0, 1000),
     builtIn: false, modules: [], created: new Date().toISOString()
   });
   res.json(program);
 });
 
 app.delete('/api/programs/:id', (req, res) => {
-  const prog = stores.programs.getById(req.params.id);
+  const prog = req.stores.programs.getById(req.params.id);
   if (!prog) return res.status(404).json({ error: 'Not found' });
   if (prog.builtIn) return res.status(400).json({ error: 'Cannot delete built-in program' });
-  stores.programs.remove(req.params.id);
+  req.stores.programs.remove(req.params.id);
   res.json({ ok: true });
 });
 
 app.post('/api/programs/:id/modules', (req, res) => {
-  const prog = stores.programs.getById(req.params.id);
+  const prog = req.stores.programs.getById(req.params.id);
   if (!prog) return res.status(404).json({ error: 'Not found' });
   if (prog.builtIn) return res.status(400).json({ error: 'Cannot modify built-in program' });
   const { title, content } = req.body;
-  if (!title) return res.status(400).json({ error: 'Title required' });
-  const mod = { id: uuidv4(), title, content: content || '', created: new Date().toISOString() };
+  if (!title || typeof title !== 'string' || title.trim().length === 0) {
+    return res.status(400).json({ error: 'Title required' });
+  }
+  const mod = {
+    id: uuidv4(),
+    title: title.trim().slice(0, 200),
+    content: (content || '').slice(0, 50000),
+    created: new Date().toISOString()
+  };
   prog.modules.push(mod);
-  stores.programs.update(prog.id, { modules: prog.modules });
+  req.stores.programs.update(prog.id, { modules: prog.modules });
   res.json(mod);
 });
 
 // ─── API: Curriculum ────────────────────────────────────────────────────────
 
 app.get('/api/curriculum', (req, res) => {
-  const progress = stores.progress.get();
+  const progress = req.stores.progress.get();
   const modules = Object.values(contentCache.modules).map(m => ({
     id: m.id, title: m.title, domain: m.domain, weight: m.weight,
     sections: m.sections,
@@ -500,8 +689,7 @@ app.get('/api/curriculum', (req, res) => {
 app.get('/api/curriculum/:moduleId', (req, res) => {
   const mod = contentCache.modules[req.params.moduleId];
   if (!mod) {
-    // Check custom programs
-    const programs = stores.programs.getAll();
+    const programs = req.stores.programs.getAll();
     for (const p of programs) {
       const cm = p.modules.find(m => m.id === req.params.moduleId);
       if (cm && cm.content) {
@@ -511,7 +699,7 @@ app.get('/api/curriculum/:moduleId', (req, res) => {
     }
     return res.status(404).json({ error: 'Module not found' });
   }
-  const progress = stores.progress.get();
+  const progress = req.stores.progress.get();
   res.json({
     id: mod.id, title: mod.title, domain: mod.domain, weight: mod.weight,
     html: mod.html, toc: mod.toc, sections: mod.sections,
@@ -523,7 +711,7 @@ app.put('/api/curriculum/:moduleId/progress', (req, res) => {
   const { sectionId, completed } = req.body;
   const mod = contentCache.modules[req.params.moduleId];
   if (!mod) return res.status(404).json({ error: 'Module not found' });
-  const progress = stores.progress.get();
+  const progress = req.stores.progress.get();
   if (!progress.modulesRead) progress.modulesRead = {};
   if (!progress.modulesRead[mod.id]) {
     progress.modulesRead[mod.id] = { sectionsCompleted: [], percentComplete: 0, lastRead: null };
@@ -537,15 +725,15 @@ app.put('/api/curriculum/:moduleId/progress', (req, res) => {
   modProgress.percentComplete = mod.sections.length > 0
     ? Math.round((modProgress.sectionsCompleted.length / mod.sections.length) * 100) : 0;
   modProgress.lastRead = new Date().toISOString();
-  stores.progress.set(progress);
-  recordActivity();
+  req.stores.progress.set(progress);
+  recordActivity(req.stores);
   res.json(modProgress);
 });
 
 // ─── API: Assessments ───────────────────────────────────────────────────────
 
 app.get('/api/assessments/domains', (req, res) => {
-  const quizHistory = stores.quizHistory.getAll();
+  const quizHistory = req.stores.quizHistory.getAll();
   const domainNames = {
     1: 'Agentic Architecture & Orchestration', 2: 'Tool Design & MCP Integration',
     3: 'Claude Code Configuration & Workflows', 4: 'Prompt Engineering & Structured Output',
@@ -569,7 +757,6 @@ app.get('/api/assessments/domain/:num', (req, res) => {
   const d = parseInt(req.params.num);
   const questions = contentCache.assessments[d];
   if (!questions) return res.status(404).json({ error: 'Domain not found' });
-  // Send questions WITHOUT correct answers (prevent cheating)
   const safe = questions.map(q => ({
     num: q.num, scenario: q.scenario, options: q.options, taskStatement: q.taskStatement
   }));
@@ -588,7 +775,6 @@ app.get('/api/assessments/scenarios', (req, res) => {
 });
 
 app.get('/api/assessments/exam-simulation', (req, res) => {
-  // Random 4 of 6 scenarios
   const shuffled = [...contentCache.scenarios].sort(() => Math.random() - 0.5);
   const selected = shuffled.slice(0, 4);
   const safe = selected.map(s => ({
@@ -639,15 +825,15 @@ app.post('/api/assessments/submit', (req, res) => {
     date: new Date().toISOString(), score, total, percentage,
     answers: results, timeSpentSeconds: timeSpentSeconds || 0
   };
-  stores.quizHistory.add(record);
-  recordActivity();
+  req.stores.quizHistory.add(record);
+  recordActivity(req.stores);
   res.json(record);
 });
 
 // ─── API: Quiz History ──────────────────────────────────────────────────────
 
 app.get('/api/quiz-history', (req, res) => {
-  res.json(stores.quizHistory.getAll());
+  res.json(req.stores.quizHistory.getAll());
 });
 
 // ─── API: Glossary ──────────────────────────────────────────────────────────
@@ -659,14 +845,14 @@ app.get('/api/glossary', (req, res) => {
 // ─── API: Study Plan ────────────────────────────────────────────────────────
 
 app.get('/api/study-plan', (req, res) => {
-  const progress = stores.progress.get();
+  const progress = req.stores.progress.get();
   res.json(progress.studyPlan || defaultProgress.studyPlan);
 });
 
 app.put('/api/study-plan', (req, res) => {
   const { phase, itemId, completed } = req.body;
-  const progress = stores.progress.get();
-  if (!progress.studyPlan) progress.studyPlan = { ...defaultProgress.studyPlan };
+  const progress = req.stores.progress.get();
+  if (!progress.studyPlan) progress.studyPlan = JSON.parse(JSON.stringify(defaultProgress.studyPlan));
   const phaseKey = `phase-${phase}`;
   const cp = progress.studyPlan.checkpoints[phaseKey];
   if (!cp) return res.status(400).json({ error: 'Invalid phase' });
@@ -675,7 +861,6 @@ app.put('/api/study-plan', (req, res) => {
   } else if (!completed) {
     cp.completed = cp.completed.filter(i => i !== itemId);
   }
-  // Auto-advance phase
   const phases = Object.keys(progress.studyPlan.checkpoints);
   for (let i = phases.length - 1; i >= 0; i--) {
     const p = progress.studyPlan.checkpoints[phases[i]];
@@ -684,15 +869,15 @@ app.put('/api/study-plan', (req, res) => {
       break;
     }
   }
-  stores.progress.set(progress);
-  recordActivity();
+  req.stores.progress.set(progress);
+  recordActivity(req.stores);
   res.json(progress.studyPlan);
 });
 
 // ─── API: Exercises ─────────────────────────────────────────────────────────
 
 app.get('/api/exercises', (req, res) => {
-  const progress = stores.progress.get();
+  const progress = req.stores.progress.get();
   const exercises = contentCache.exercises.map(ex => ({
     ...ex,
     completedCriteria: (progress.exercises?.[`exercise-${ex.num}`]?.completed) || []
@@ -702,7 +887,7 @@ app.get('/api/exercises', (req, res) => {
 
 app.put('/api/exercises/:num/checklist', (req, res) => {
   const { criteriaId, completed } = req.body;
-  const progress = stores.progress.get();
+  const progress = req.stores.progress.get();
   if (!progress.exercises) progress.exercises = {};
   const key = `exercise-${req.params.num}`;
   if (!progress.exercises[key]) progress.exercises[key] = { completed: [] };
@@ -712,8 +897,8 @@ app.put('/api/exercises/:num/checklist', (req, res) => {
   } else if (!completed) {
     ex.completed = ex.completed.filter(c => c !== criteriaId);
   }
-  stores.progress.set(progress);
-  recordActivity();
+  req.stores.progress.set(progress);
+  recordActivity(req.stores);
   res.json(ex);
 });
 
@@ -722,24 +907,29 @@ app.put('/api/exercises/:num/checklist', (req, res) => {
 app.get('/api/notes', (req, res) => {
   const { targetId } = req.query;
   if (targetId) {
-    res.json(stores.notes.query(n => n.targetId === targetId));
+    res.json(req.stores.notes.query(n => n.targetId === targetId));
   } else {
-    res.json(stores.notes.getAll());
+    res.json(req.stores.notes.getAll());
   }
 });
 
 app.post('/api/notes', (req, res) => {
   const { targetId, sectionId, content } = req.body;
-  if (!content) return res.status(400).json({ error: 'Content required' });
-  const note = stores.notes.add({
-    targetId: targetId || '', sectionId: sectionId || '',
-    content, created: new Date().toISOString(), updated: new Date().toISOString()
+  if (!content || typeof content !== 'string' || content.trim().length === 0) {
+    return res.status(400).json({ error: 'Content required' });
+  }
+  const note = req.stores.notes.add({
+    targetId: (targetId || '').slice(0, 200),
+    sectionId: (sectionId || '').slice(0, 200),
+    content: content.slice(0, 10000),
+    created: new Date().toISOString(),
+    updated: new Date().toISOString()
   });
   res.json(note);
 });
 
 app.put('/api/notes/:id', (req, res) => {
-  const note = stores.notes.update(req.params.id, {
+  const note = req.stores.notes.update(req.params.id, {
     ...req.body, updated: new Date().toISOString()
   });
   if (!note) return res.status(404).json({ error: 'Not found' });
@@ -747,7 +937,7 @@ app.put('/api/notes/:id', (req, res) => {
 });
 
 app.delete('/api/notes/:id', (req, res) => {
-  stores.notes.remove(req.params.id);
+  req.stores.notes.remove(req.params.id);
   res.json({ ok: true });
 });
 
@@ -756,7 +946,7 @@ app.delete('/api/notes/:id', (req, res) => {
 loadContent();
 
 app.listen(PORT, () => {
-  console.log(`🎓 Claude University running at http://localhost:${PORT}`);
-  console.log(`   Dashboard: http://localhost:${PORT}`);
-  console.log(`   Stats API: http://localhost:${PORT}/api/stats\n`);
+  console.log(`Claude University running at http://localhost:${PORT}`);
+  console.log(`  Dashboard: http://localhost:${PORT}`);
+  console.log(`  Stats API: http://localhost:${PORT}/api/stats\n`);
 });

@@ -110,10 +110,6 @@ function hideModal() {
 
 let currentView = 'dashboard';
 
-document.querySelectorAll('.tab').forEach(tab => {
-  tab.addEventListener('click', () => switchView(tab.dataset.view));
-});
-
 function switchView(name) {
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === name));
@@ -1192,9 +1188,133 @@ async function loadExercises() {
 }
 
 // ===============================================================
+//  AUTHENTICATION
+// ===============================================================
+
+let currentUser = null;
+
+function showAuthScreen() {
+  document.getElementById('auth-screen').style.display = 'flex';
+  document.getElementById('app-header').style.display = 'none';
+  document.getElementById('app-main').style.display = 'none';
+  document.getElementById('app-footer').style.display = 'none';
+}
+
+function showApp(user) {
+  currentUser = user;
+  document.getElementById('auth-screen').style.display = 'none';
+  document.getElementById('app-header').style.display = '';
+  document.getElementById('app-main').style.display = '';
+  document.getElementById('app-footer').style.display = '';
+  document.getElementById('user-display-name').textContent = user.displayName || user.email;
+
+  // Re-bind tab listeners after header is visible
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => switchView(tab.dataset.view));
+  });
+
+  loadView('dashboard');
+}
+
+function showAuthError(formId, message) {
+  const el = document.getElementById(formId);
+  el.textContent = message;
+  el.style.display = 'block';
+}
+
+function clearAuthErrors() {
+  document.getElementById('login-error').style.display = 'none';
+  document.getElementById('register-error').style.display = 'none';
+}
+
+async function checkAuth() {
+  try {
+    const user = await api('/api/auth/me');
+    showApp(user);
+  } catch {
+    showAuthScreen();
+  }
+}
+
+function initAuth() {
+  // Toggle between login and register
+  document.getElementById('show-register').addEventListener('click', () => {
+    clearAuthErrors();
+    document.getElementById('login-form').style.display = 'none';
+    document.getElementById('register-form').style.display = '';
+  });
+  document.getElementById('show-login').addEventListener('click', () => {
+    clearAuthErrors();
+    document.getElementById('register-form').style.display = 'none';
+    document.getElementById('login-form').style.display = '';
+  });
+
+  // Login
+  document.getElementById('login-btn').addEventListener('click', async () => {
+    clearAuthErrors();
+    const email = document.getElementById('login-email').value.trim();
+    const password = document.getElementById('login-password').value;
+    if (!email || !password) {
+      showAuthError('login-error', 'Please enter email and password.');
+      return;
+    }
+    try {
+      const user = await api('/api/auth/login', { method: 'POST', body: { email, password } });
+      showApp(user);
+    } catch (err) {
+      const msg = err.message.includes('429') ? 'Too many attempts. Try again in 15 minutes.'
+        : err.message.includes('401') ? 'Invalid email or password.'
+        : 'Login failed. Please try again.';
+      showAuthError('login-error', msg);
+    }
+  });
+
+  // Register
+  document.getElementById('register-btn').addEventListener('click', async () => {
+    clearAuthErrors();
+    const displayName = document.getElementById('register-name').value.trim();
+    const email = document.getElementById('register-email').value.trim();
+    const password = document.getElementById('register-password').value;
+    if (!email || !password) {
+      showAuthError('register-error', 'Please enter email and password.');
+      return;
+    }
+    if (password.length < 8) {
+      showAuthError('register-error', 'Password must be at least 8 characters.');
+      return;
+    }
+    try {
+      const user = await api('/api/auth/register', { method: 'POST', body: { email, password, displayName } });
+      showApp(user);
+    } catch (err) {
+      const msg = err.message.includes('409') ? 'An account with this email already exists.'
+        : err.message.includes('429') ? 'Too many attempts. Try again later.'
+        : 'Registration failed. Please try again.';
+      showAuthError('register-error', msg);
+    }
+  });
+
+  // Logout
+  document.getElementById('logout-btn').addEventListener('click', async () => {
+    try { await api('/api/auth/logout', { method: 'POST' }); } catch {}
+    currentUser = null;
+    showAuthScreen();
+  });
+
+  // Enter key submits forms
+  document.getElementById('login-password').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('login-btn').click();
+  });
+  document.getElementById('register-password').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('register-btn').click();
+  });
+}
+
+// ===============================================================
 //  INITIALIZATION
 // ===============================================================
 
 document.addEventListener('DOMContentLoaded', () => {
-  loadView('dashboard');
+  initAuth();
+  checkAuth();
 });

@@ -206,6 +206,26 @@ a:hover{text-decoration:underline}
 .btn-secondary{background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:10px 20px;font-weight:500;font-size:0.9rem;transition:color .15s var(--ease),border-color .15s var(--ease)}
 .btn-secondary:hover{color:var(--text);border-color:var(--text)}
 
+/* ── Auth Screen ── */
+.auth-screen{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}
+.auth-card{background:var(--surface);border-radius:16px;padding:40px;border:1px solid var(--border);box-shadow:0 8px 32px rgba(0,0,0,0.08);max-width:400px;width:100%}
+.auth-card .brand{justify-content:center;margin-bottom:32px}
+.auth-card h2{text-align:center;margin-bottom:24px;font-size:1.2rem}
+.auth-error{background:rgba(224,82,96,0.08);color:var(--rose);border:1px solid rgba(224,82,96,0.2);border-radius:8px;padding:10px 14px;font-size:0.85rem;margin-bottom:16px;display:none}
+.auth-form .form-group{margin-bottom:16px}
+.auth-form .form-label{display:block;font-size:0.85rem;color:var(--muted);margin-bottom:6px;font-weight:500}
+.auth-form .form-input{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px;color:var(--text);font-size:0.95rem;outline:none;transition:border-color .2s var(--ease)}
+.auth-form .form-input:focus{border-color:var(--primary)}
+.auth-toggle{text-align:center;margin-top:20px;font-size:0.88rem;color:var(--muted)}
+.auth-toggle a{color:var(--primary);cursor:pointer;font-weight:600}
+.auth-toggle a:hover{text-decoration:underline}
+
+/* ── User Menu ── */
+.user-menu{display:flex;align-items:center;gap:12px;margin-left:auto;flex-shrink:0}
+.user-name{font-size:0.85rem;font-weight:600;color:var(--muted);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.logout-btn{font-size:0.8rem;color:var(--rose);font-weight:600;cursor:pointer;padding:4px 10px;border-radius:6px;transition:background .15s var(--ease)}
+.logout-btn:hover{background:rgba(224,82,96,0.08)}
+
 /* ── Footer ── */
 .footer{text-align:center;padding:32px 0 24px;font-size:0.8rem;color:var(--muted)}
 .footer strong{color:var(--text);font-weight:600}
@@ -295,8 +315,61 @@ a:hover{text-decoration:underline}
 </head>
 <body>
 
-<!-- Header -->
-<header class="header">
+<!-- Auth Screen (shown when not logged in) -->
+<div id="auth-screen" class="auth-screen">
+  <div class="auth-card">
+    <div class="brand">
+      <img src="/logo.svg" alt="PlanetCorps" class="brand-logo">
+      <div>
+        <div class="brand-name"><span class="green">Planet</span>Corps &middot; Claude University</div>
+        <div class="brand-sub">sustain your improvements</div>
+      </div>
+    </div>
+
+    <!-- Login Form -->
+    <div id="login-form">
+      <h2>Sign In</h2>
+      <div id="login-error" class="auth-error"></div>
+      <form class="auth-form" onsubmit="return false">
+        <div class="form-group">
+          <label class="form-label" for="login-email">Email</label>
+          <input class="form-input" id="login-email" type="email" placeholder="you@example.com" autocomplete="email" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="login-password">Password</label>
+          <input class="form-input" id="login-password" type="password" placeholder="Password" autocomplete="current-password" required>
+        </div>
+        <button class="btn-primary w-full" id="login-btn" style="padding:12px;font-size:0.95rem;border-radius:10px;margin-top:8px">Sign In</button>
+      </form>
+      <div class="auth-toggle">Don't have an account? <a id="show-register">Create one</a></div>
+    </div>
+
+    <!-- Register Form -->
+    <div id="register-form" style="display:none">
+      <h2>Create Account</h2>
+      <div id="register-error" class="auth-error"></div>
+      <form class="auth-form" onsubmit="return false">
+        <div class="form-group">
+          <label class="form-label" for="register-name">Display Name</label>
+          <input class="form-input" id="register-name" type="text" placeholder="Your name" autocomplete="name">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="register-email">Email</label>
+          <input class="form-input" id="register-email" type="email" placeholder="you@example.com" autocomplete="email" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="register-password">Password</label>
+          <input class="form-input" id="register-password" type="password" placeholder="At least 8 characters" autocomplete="new-password" required>
+        </div>
+        <button class="btn-primary w-full" id="register-btn" style="padding:12px;font-size:0.95rem;border-radius:10px;margin-top:8px">Create Account</button>
+      </form>
+      <div class="auth-toggle">Already have an account? <a id="show-login">Sign in</a></div>
+    </div>
+  </div>
+</div>
+
+<!-- Header (hidden until authenticated) -->
+<header class="header" id="app-header" style="display:none">
   <div class="shell">
     <div class="brand">
       <img src="/logo.svg" alt="PlanetCorps" class="brand-logo">
@@ -315,11 +388,15 @@ a:hover{text-decoration:underline}
       <button class="tab" data-view="study-plan">Study Plan</button>
       <button class="tab" data-view="exercises">Exercises</button>
     </nav>
+    <div class="user-menu">
+      <span class="user-name" id="user-display-name"></span>
+      <button class="logout-btn" id="logout-btn">Sign Out</button>
+    </div>
   </div>
 </header>
 
-<!-- Main Content -->
-<div class="main">
+<!-- Main Content (hidden until authenticated) -->
+<div class="main" id="app-main" style="display:none">
   <div class="shell">
 
     <!-- Dashboard -->
@@ -408,9 +485,9 @@ a:hover{text-decoration:underline}
   </div>
 </div>
 
-<!-- Footer -->
-<div class="footer">
-  <strong>PlanetCorps</strong> &middot; Claude University &middot; Running on port 3009
+<!-- Footer (hidden until authenticated) -->
+<div class="footer" id="app-footer" style="display:none">
+  <strong>PlanetCorps</strong> &middot; Claude University
 </div>
 
 <script src="/app.js"></script>
