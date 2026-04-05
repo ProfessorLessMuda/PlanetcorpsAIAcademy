@@ -1,0 +1,113 @@
+{
+  "id": "fiftyone-visual-ai",
+  "name": "FiftyOne: Visual AI Data Quality for Everyone",
+  "shortName": "FiftyOne",
+  "description": "5-domain training covering computer vision fundamentals, the FiftyOne platform, data loading, visual data exploration and quality, and model evaluation workflows.",
+  "icon": "👁️",
+  "color": "#e85d04",
+  "version": "1.0.0",
+  "builtIn": true,
+
+  "domains": {
+    "1": { "name": "Computer Vision Fundamentals", "weight": 15 },
+    "2": { "name": "FiftyOne Platform & Architecture", "weight": 20 },
+    "3": { "name": "Data Loading & Management", "weight": 20 },
+    "4": { "name": "Visual Data Exploration & Quality", "weight": 25 },
+    "5": { "name": "Model Evaluation & AI Workflows", "weight": 20 }
+  },
+
+  "domainColors": {
+    "1": "#e85d04",
+    "2": "#dc2f02",
+    "3": "#d00000",
+    "4": "#9d0208",
+    "5": "#6a040f"
+  },
+
+  "modules": [
+    { "id": "module-01", "title": "Computer Vision Fundamentals", "file": "curriculum/module-01-computer-vision-fundamentals.md", "domain": 1, "weight": 15 },
+    { "id": "module-02", "title": "FiftyOne Platform & Architecture", "file": "curriculum/module-02-fiftyone-platform.md", "domain": 2, "weight": 20 },
+    { "id": "module-03", "title": "Data Loading & Management", "file": "curriculum/module-03-data-loading-management.md", "domain": 3, "weight": 20 },
+    { "id": "module-04", "title": "Visual Data Exploration & Quality", "file": "curriculum/module-04-visual-data-exploration.md", "domain": 4, "weight": 25 },
+    { "id": "module-05", "title": "Model Evaluation & AI Workflows", "file": "curriculum/module-05-model-evaluation-workflows.md", "domain": 5, "weight": 20 }
+  ],
+
+  "assessments": {
+    "domainFiles": {
+      "1": "assessments/domain-01-questions.md",
+      "2": "assessments/domain-02-questions.md",
+      "3": "assessments/domain-03-questions.md",
+      "4": "assessments/domain-04-questions.md",
+      "5": "assessments/domain-05-questions.md"
+    },
+    "scenarioFile": "assessments/exam-scenarios.md",
+    "indexFile": "assessments/scenario-questions.md"
+  },
+
+  "resources": {
+    "glossary": "docs/key-concepts-glossary.md",
+    "exercises": "docs/hands-on-exercises.md",
+    "studyPlan": "docs/learning-path.md",
+    "domains": "docs/domains.md",
+    "examGuide": "docs/exam-guide-summary.md",
+    "crossReference": "docs/cross-reference-map.md"
+  },
+
+  "studyPlan": {
+    "phases": [
+      {
+        "id": "phase-1",
+        "name": "Foundations",
+        "description": "Understand what computer vision is and why data quality matters",
+        "items": [
+          { "id": "read-exam-guide", "label": "Read Training Guide Overview" },
+          { "id": "read-domains", "label": "Read Domains & Learning Objectives" },
+          { "id": "skim-glossary", "label": "Skim Key Concepts Glossary" },
+          { "id": "study-module-01", "label": "Study Module 01: Computer Vision Fundamentals" },
+          { "id": "study-module-02", "label": "Study Module 02: FiftyOne Platform" },
+          { "id": "assess-domain-01", "label": "Take Domain 1 Assessment" },
+          { "id": "assess-domain-02", "label": "Take Domain 2 Assessment" }
+        ],
+        "milestone": "Can explain what computer vision is, why data quality matters, and what FiftyOne does"
+      },
+      {
+        "id": "phase-2",
+        "name": "Hands-On Skills",
+        "description": "Load data, explore it, and find quality issues",
+        "items": [
+          { "id": "study-module-03", "label": "Study Module 03: Data Loading & Management" },
+          { "id": "study-module-04", "label": "Study Module 04: Visual Data Exploration & Quality" },
+          { "id": "exercise-1", "label": "Complete Exercise 1: FiftyOne Quickstart" },
+          { "id": "exercise-2", "label": "Complete Exercise 2: Explore a Dataset" },
+          { "id": "assess-domain-03", "label": "Take Domain 3 Assessment" },
+          { "id": "assess-domain-04", "label": "Take Domain 4 Assessment" }
+        ],
+        "milestone": "Can load a dataset into FiftyOne, explore it visually, and identify quality issues"
+      },
+      {
+        "id": "phase-3",
+        "name": "Model Evaluation & Workflows",
+        "description": "Evaluate model predictions and integrate FiftyOne into AI pipelines",
+        "items": [
+          { "id": "study-module-05", "label": "Study Module 05: Model Evaluation & AI Workflows" },
+          { "id": "exercise-3", "label": "Complete Exercise 3: Evaluate Model Predictions" },
+          { "id": "exercise-4", "label": "Complete Exercise 4: End-to-End Workflow" },
+          { "id": "assess-domain-05", "label": "Take Domain 5 Assessment" }
+        ],
+        "milestone": "Can evaluate model performance and design a data quality improvement workflow"
+      },
+      {
+        "id": "phase-4",
+        "name": "Mastery & Application",
+        "description": "Apply everything to real-world scenarios",
+        "items": [
+          { "id": "full-scenario-practice", "label": "Complete All Exam Scenarios" },
+          { "id": "timed-mock-exam", "label": "Take Timed Assessment" },
+          { "id": "review-weak-domains", "label": "Review Weak Domains" },
+          { "id": "score-80-plus", "label": "Score 80%+ on Scenario Questions" }
+        ],
+        "milestone": "Consistently scoring 80%+ and can explain FiftyOne's value to any audience"
+      }
+    ]
+  }
+}
