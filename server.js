@@ -2,6 +2,7 @@ require('dotenv').config({ path: require('path').join(__dirname, '.env') });
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const { execSync } = require('child_process');
 const { v4: uuidv4 } = require('uuid');
 const { marked } = require('marked');
 const bcrypt = require('bcryptjs');
@@ -186,31 +187,58 @@ const contentCache = {};
 
 function discoverPrograms() {
   console.log('Discovering programs...');
-  if (!fs.existsSync(PROGRAMS_DIR)) {
-    console.warn(`  Programs directory not found: ${PROGRAMS_DIR}`);
-    return;
+
+  // Scan a directory for subdirs containing program.json
+  function scanDir(baseDir) {
+    if (!fs.existsSync(baseDir)) return;
+    const entries = fs.readdirSync(baseDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const dirPath = path.join(baseDir, entry.name);
+      const manifestPath = path.join(dirPath, 'program.json');
+      if (!fs.existsSync(manifestPath)) continue;
+      try {
+        const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+        const programId = manifest.id || entry.name;
+        manifest._basePath = dirPath;
+        programManifests[programId] = manifest;
+        console.log(`  Found program: ${manifest.name} (${programId})`);
+      } catch (e) {
+        console.warn(`  Could not load manifest for ${entry.name}:`, e.message);
+      }
+    }
   }
-  const entries = fs.readdirSync(PROGRAMS_DIR, { withFileTypes: true });
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const manifestPath = path.join(PROGRAMS_DIR, entry.name, 'program.json');
+
+  // Primary: programs/ directory
+  scanDir(PROGRAMS_DIR);
+
+  // Secondary: top-level ##-* directories (e.g. 02-LeanAISigma/)
+  const rootEntries = fs.readdirSync(ROOT, { withFileTypes: true });
+  for (const entry of rootEntries) {
+    if (!entry.isDirectory() || !/^\d{2}-/.test(entry.name)) continue;
+    const dirPath = path.join(ROOT, entry.name);
+    const manifestPath = path.join(dirPath, 'program.json');
     if (!fs.existsSync(manifestPath)) continue;
     try {
       const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
       const programId = manifest.id || entry.name;
+      manifest._basePath = dirPath;
       programManifests[programId] = manifest;
       console.log(`  Found program: ${manifest.name} (${programId})`);
     } catch (e) {
       console.warn(`  Could not load manifest for ${entry.name}:`, e.message);
     }
   }
+
   console.log(`  Total programs discovered: ${Object.keys(programManifests).length}\n`);
 }
 
 // ─── Markdown file reader (program-scoped) ──────────────────────────────────
 
 function readMdFile(programId, relativePath) {
-  const fp = path.join(PROGRAMS_DIR, programId, relativePath);
+  const manifest = programManifests[programId];
+  const basePath = manifest && manifest._basePath ? manifest._basePath : path.join(PROGRAMS_DIR, programId);
+  const fp = path.join(basePath, relativePath);
   if (!fs.existsSync(fp)) return '';
   return fs.readFileSync(fp, 'utf8');
 }
@@ -1201,7 +1229,145 @@ app.delete('/api/programs/:programId/notes/:id', requireProgram, (req, res) => {
   res.json({ ok: true });
 });
 
+// ─── Admin API (local only) ──────────────────────────────────────────────────
+
+function requireLocal(req, res, next) {
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(403).json({ error: 'Admin not available in production' });
+  }
+  next();
+}
+
+function git(cmd) {
+  return execSync(cmd, { cwd: ROOT, encoding: 'utf8', timeout: 30000 }).trim();
+}
+
+app.get('/api/admin/status', requireLocal, (req, res) => {
+  try {
+    const branch = git('git rev-parse --abbrev-ref HEAD');
+    const localCommit = git('git log -1 --format="%h|%s|%ci"');
+    const [localHash, localMsg, localDate] = localCommit.split('|');
+
+    let mainCommit = { hash: '', message: '', date: '' };
+    try {
+      const mc = git('git log main -1 --format="%h|%s|%ci"');
+      const [mHash, mMsg, mDate] = mc.split('|');
+      mainCommit = { hash: mHash, message: mMsg, date: mDate };
+    } catch (e) { /* main may not exist */ }
+
+    let aheadCommits = [];
+    try {
+      const ahead = git('git log main..HEAD --format="%h|%s|%ci"');
+      if (ahead) {
+        aheadCommits = ahead.split('\n').map(line => {
+          const [hash, message, date] = line.split('|');
+          return { hash, message, date };
+        });
+      }
+    } catch (e) { /* no commits ahead */ }
+
+    let changedFiles = [];
+    try {
+      const diff = git('git diff main..HEAD --name-status');
+      if (diff) {
+        changedFiles = diff.split('\n').map(line => {
+          const [status, ...fileParts] = line.split('\t');
+          return { status: status.trim(), file: fileParts.join('\t') };
+        });
+      }
+    } catch (e) { /* no diff */ }
+
+    let uncommitted = [];
+    try {
+      const status = git('git status --porcelain');
+      if (status) {
+        uncommitted = status.split('\n').map(l => l.trim()).filter(Boolean);
+      }
+    } catch (e) { /* clean */ }
+
+    res.json({
+      environment: 'local',
+      branch,
+      localCommit: { hash: localHash, message: localMsg, date: localDate },
+      mainCommit,
+      aheadCommits,
+      changedFiles,
+      uncommitted,
+      productionUrl: 'https://academy.planetcorps.ai'
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to get status', details: err.message });
+  }
+});
+
+app.post('/api/admin/deploy', requireLocal, async (req, res) => {
+  try {
+    const log = [];
+    const branch = git('git rev-parse --abbrev-ref HEAD');
+
+    // Check for uncommitted changes
+    const status = git('git status --porcelain');
+    if (status) {
+      return res.status(400).json({ error: 'Uncommitted changes. Commit before deploying.', uncommitted: status.split('\n') });
+    }
+
+    // Check if there are changes to deploy
+    let ahead = '';
+    try { ahead = git(`git log main..${branch} --oneline`); } catch (e) {}
+    if (!ahead) {
+      return res.json({ ok: true, message: 'Nothing to deploy — dev is up to date with main.', log: [] });
+    }
+
+    // Merge to main
+    log.push('Switching to main...');
+    git('git checkout main');
+    log.push(`Merging ${branch} into main...`);
+    git(`git merge ${branch} --no-edit`);
+    log.push('Merge complete.');
+
+    // Push to GitHub
+    log.push('Pushing to GitHub...');
+    try {
+      git('git push origin main');
+      log.push('GitHub push complete.');
+    } catch (e) {
+      log.push('GitHub push failed: ' + e.message);
+    }
+
+    // Push to Azure
+    log.push('Deploying to Azure...');
+    try {
+      git('git push azure main:master');
+      log.push('Azure deployment complete.');
+    } catch (e) {
+      log.push('Azure push failed: ' + e.message);
+    }
+
+    // Switch back to dev
+    log.push(`Switching back to ${branch}...`);
+    git(`git checkout ${branch}`);
+    log.push('Done.');
+
+    res.json({ ok: true, message: 'Deployment successful!', log });
+  } catch (err) {
+    // Try to switch back to dev on error
+    try { git('git checkout dev'); } catch (e) {}
+    res.status(500).json({ error: 'Deployment failed', details: err.message });
+  }
+});
+
 // ─── Start server ───────────────────────────────────────────────────────────
+
+// Auto-switch to dev branch for local development
+if (process.env.NODE_ENV !== 'production') {
+  try {
+    const branch = execSync('git rev-parse --abbrev-ref HEAD', { cwd: ROOT, encoding: 'utf8' }).trim();
+    if (branch === 'main') {
+      execSync('git checkout dev', { cwd: ROOT });
+      console.log('  Auto-switched to dev branch for local development');
+    }
+  } catch (e) { /* not a git repo or dev doesn't exist */ }
+}
 
 discoverPrograms();
 loadAllProgramContent();

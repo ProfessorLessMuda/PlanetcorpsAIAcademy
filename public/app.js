@@ -156,6 +156,7 @@ function loadView(name) {
     case 'glossary': loadGlossary(); break;
     case 'study-plan': loadStudyPlan(); break;
     case 'exercises': loadExercises(); break;
+    case 'admin': loadAdmin(); break;
   }
 }
 
@@ -1367,6 +1368,112 @@ async function loadExercises() {
 }
 
 // ===============================================================
+//  ADMIN DASHBOARD (local only)
+// ===============================================================
+
+async function loadAdmin() {
+  const el = document.getElementById('view-admin');
+  try {
+    const status = await api('/api/admin/status');
+    const branchClass = status.branch === 'dev' ? 'dev' : 'main';
+    const envClass = status.environment === 'local' ? 'local' : 'prod';
+    const hasUncommitted = status.uncommitted.length > 0;
+    const hasChanges = status.aheadCommits.length > 0;
+
+    el.innerHTML = `
+      <h2 style="margin-bottom:8px">Deployment Admin</h2>
+      <p style="color:var(--muted);margin-bottom:20px">Manage local development vs production at <a href="${status.productionUrl}" target="_blank" style="color:var(--primary)">${status.productionUrl}</a></p>
+
+      ${hasUncommitted ? `<div class="warning-box">&#9888; You have ${status.uncommitted.length} uncommitted change(s). Commit before deploying.</div>` : ''}
+
+      <div class="admin-grid">
+        <div class="admin-card">
+          <h3>Environment</h3>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+            <span class="admin-badge ${envClass}">${status.environment}</span>
+            <span class="admin-badge ${branchClass}">${status.branch}</span>
+          </div>
+          <div style="font-size:0.82rem;color:var(--muted)">
+            <div><strong>Latest local:</strong> <code>${status.localCommit.hash}</code> ${status.localCommit.message}</div>
+            <div style="margin-top:4px"><strong>Production (main):</strong> <code>${status.mainCommit.hash}</code> ${status.mainCommit.message}</div>
+          </div>
+        </div>
+
+        <div class="admin-card">
+          <h3>Changes Ready to Deploy</h3>
+          ${hasChanges
+            ? `<div style="font-size:0.9rem;font-weight:600;color:var(--primary);margin-bottom:8px">${status.aheadCommits.length} commit(s), ${status.changedFiles.length} file(s)</div>`
+            : `<div style="font-size:0.9rem;color:var(--muted)">Up to date with production. Nothing to deploy.</div>`
+          }
+          ${hasChanges ? `
+            <ul class="commit-list">
+              ${status.aheadCommits.map(c => `<li><span class="hash">${c.hash}</span>${c.message}</li>`).join('')}
+            </ul>
+          ` : ''}
+        </div>
+      </div>
+
+      ${hasChanges && status.changedFiles.length > 0 ? `
+        <div class="admin-card" style="margin-bottom:20px">
+          <h3>Changed Files</h3>
+          <ul class="file-list">
+            ${status.changedFiles.map(f => {
+              const cls = f.status === 'A' ? 'added' : f.status === 'D' ? 'deleted' : 'modified';
+              const label = f.status === 'A' ? '+' : f.status === 'D' ? '-' : '~';
+              return `<li class="${cls}">${label} ${f.file}</li>`;
+            }).join('')}
+          </ul>
+        </div>
+      ` : ''}
+
+      <div class="admin-card">
+        <h3>Deploy to Production</h3>
+        <p style="font-size:0.82rem;color:var(--muted);margin-bottom:16px">
+          This will merge dev into main, push to GitHub, and deploy to Azure (academy.planetcorps.ai).
+        </p>
+        <button class="deploy-btn" id="deploy-btn" ${!hasChanges || hasUncommitted ? 'disabled' : ''}>
+          ${!hasChanges ? 'Nothing to Deploy' : hasUncommitted ? 'Commit Changes First' : `Deploy ${status.aheadCommits.length} Commit(s) to Production`}
+        </button>
+        <div class="deploy-log" id="deploy-log"></div>
+      </div>
+    `;
+
+    // Deploy button handler
+    const deployBtn = document.getElementById('deploy-btn');
+    if (deployBtn && hasChanges && !hasUncommitted) {
+      deployBtn.addEventListener('click', async () => {
+        if (!confirm(`Deploy ${status.aheadCommits.length} commit(s) to academy.planetcorps.ai?`)) return;
+        deployBtn.disabled = true;
+        deployBtn.textContent = 'Deploying...';
+        const logEl = document.getElementById('deploy-log');
+        logEl.classList.add('visible');
+        logEl.textContent = 'Starting deployment...\\n';
+
+        try {
+          const result = await api('/api/admin/deploy', { method: 'POST' });
+          if (result.log) {
+            logEl.textContent = result.log.join('\\n');
+          }
+          logEl.textContent += '\\n\\n' + (result.ok ? '=== DEPLOYMENT SUCCESSFUL ===' : '=== DEPLOYMENT FAILED ===');
+          deployBtn.textContent = result.ok ? 'Deployed!' : 'Failed';
+          if (result.ok) {
+            deployBtn.style.background = '#166534';
+            setTimeout(() => loadAdmin(), 3000);
+          }
+        } catch (err) {
+          logEl.textContent += '\\nError: ' + (err.message || 'Deployment failed');
+          deployBtn.textContent = 'Failed — Retry';
+          deployBtn.disabled = false;
+        }
+      });
+    }
+
+  } catch (err) {
+    el.innerHTML = '<p style="color:var(--muted)">Admin dashboard is not available in this environment.</p>';
+  }
+}
+
+// ===============================================================
 //  AUTHENTICATION
 // ===============================================================
 
@@ -1390,6 +1497,16 @@ function showApp(user) {
   // Hide program tabs at academy level
   const tabs = document.getElementById('program-tabs');
   if (tabs) tabs.style.display = 'none';
+
+  // Check if admin is available (local only)
+  const adminTab = document.getElementById('admin-tab');
+  if (adminTab) {
+    api('/api/admin/status').then(() => {
+      adminTab.style.display = '';
+    }).catch(() => {
+      adminTab.style.display = 'none';
+    });
+  }
 
   // Re-bind tab listeners after header is visible
   document.querySelectorAll('.tab').forEach(tab => {
