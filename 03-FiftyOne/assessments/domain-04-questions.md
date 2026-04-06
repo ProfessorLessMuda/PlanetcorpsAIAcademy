@@ -3,167 +3,143 @@
 ---
 
 ## Question 1
-**Scenario:** A data scientist wants to review all images in her autonomous driving dataset where the model predicted "pedestrian" with confidence below 0.5. She writes the following code:
+**Scenario:** A computer vision engineer has a dataset of 50,000 street scene images with object detection labels. She needs to quickly isolate the subset of images that contain at least 3 pedestrian detections where the model confidence is above 0.8, sorted by the number of detections in descending order, so she can audit high-confidence predictions first.
 
-```python
-view = dataset.match(F("predictions.detections.confidence") < 0.5)
-```
+Which ViewStage pipeline accomplishes this?
 
-She gets back far more images than expected, including many with no pedestrian predictions at all. What is wrong with her approach?
+A) `dataset.match(F("predictions.detections").filter(F("label") == "pedestrian").length() >= 3).sort_by(F("predictions.detections").length(), reverse=True)`
+B) `dataset.filter_labels("predictions", F("confidence") > 0.8).filter_labels("predictions", F("label") == "pedestrian").match(F("predictions.detections").length() >= 3).sort_by(F("predictions.detections").length(), reverse=True)`
+C) `dataset.select_fields("predictions").match(F("label") == "pedestrian" and F("confidence") > 0.8)`
+D) `dataset.take(3).sort_by("confidence")`
 
-A) She should use `filter_labels()` instead of `match()` — `match()` is returning any sample that has *any* detection with confidence below 0.5, regardless of class
-B) The `confidence` field doesn't exist on detections
-C) She needs to use `sort_by()` before `match()` for the filter to work
-D) She should use `exists("predictions")` first because `match()` can't handle missing fields
+**Answer:** B
 
-**Answer:** A
-
-**Explanation:** `match()` operates at the sample level — it includes or excludes entire samples based on a condition. Her expression matches any sample containing any detection (of any class) with confidence below 0.5. To isolate specifically pedestrian detections with low confidence, she should use `filter_labels("predictions", (F("label") == "pedestrian") & (F("confidence") < 0.5))`, which filters at the label level within each sample. This is the most important distinction in FiftyOne's query system: `match()` filters samples, `filter_labels()` filters labels within samples. Option B is incorrect — confidence is a standard field on detections. Option C reverses the pipeline logic. Option D is a valid practice but doesn't address the core problem.
+**Explanation:** The correct approach chains ViewStages in sequence: first `filter_labels` to keep only detections above 0.8 confidence, then `filter_labels` again to keep only pedestrian labels, then `match` to retain only samples with 3 or more remaining detections, and finally `sort_by` in descending order. Option A filters by label count but never applies the confidence threshold — it counts all pedestrian detections regardless of confidence, which defeats the purpose of auditing high-confidence predictions. Option C uses `select_fields`, which controls which fields are visible in the view but does not filter samples or labels — and the Python `and` operator does not work correctly with ViewField expressions (you need `&`). Option D uses `take(3)`, which simply grabs 3 random samples from the dataset, completely ignoring the filtering requirements.
 
 **Task Statement:** 4.1
 
 ---
 
 ## Question 2
-**Scenario:** You run your trained model on a classification dataset and compare predictions to ground truth. You find 500 samples where the model predicts "cat" with >0.95 confidence but the ground truth label is "dog." You assume these are all model errors and plan to retrain with more cat vs. dog examples.
+**Scenario:** After running evaluation on an object detection model, a data scientist notices that 2% of samples have detections where the model assigns confidence above 0.95 but the ground truth label for the same spatial region is a completely different class. She suspects these are annotation errors rather than model failures and wants to surface them efficiently.
 
-What should you do before retraining?
+What is the best approach to identify and resolve these suspected label errors?
 
-A) Immediately retrain with augmented cat and dog images — 500 errors is a clear signal
-B) Manually review the 500 disagreements in FiftyOne, because high-confidence model disagreements are often label errors in the ground truth, not model failures
-C) Delete the 500 samples since they're clearly corrupted data
-D) Lower the model's confidence threshold to reduce the number of high-confidence disagreements
+A) Manually browse all 50,000 samples in the FiftyOne App and look for mismatches visually
+B) Use `dataset.filter_labels("predictions", F("confidence") > 0.95)` to isolate high-confidence predictions, run `evaluate_detections()` to match predictions against ground truth, then filter for samples with false positives to review likely annotation errors
+C) Delete all ground truth labels where the model disagrees, since high-confidence predictions are more reliable than human annotations
+D) Re-train the model with higher learning rate to force it to agree with the existing annotations
 
 **Answer:** B
 
-**Explanation:** When a well-trained model confidently disagrees with the ground truth, the label is wrong approximately as often as the model is wrong — sometimes more often. A model predicting "cat" at 0.95 confidence on an image labeled "dog" may be looking at an actual cat that the annotator mislabeled. Jumping to retraining (A) without inspecting the disagreements means you might be training the model to match incorrect labels. Deleting the samples (C) throws away valuable information. Lowering the threshold (D) hides the problem without addressing it. The correct workflow is: sort disagreements by confidence, visually review in FiftyOne, correct the labels that are genuinely wrong, then retrain.
+**Explanation:** High-confidence model predictions that contradict ground truth are strong signals of potential annotation errors. By filtering to high-confidence predictions and running `evaluate_detections()`, you get per-detection match results (true positive, false positive, false negative). Filtering for false positives at high confidence reveals cases where the model is confident about a class but the ground truth says otherwise — these are prime candidates for annotation review. Option A is prohibitively slow at scale and relies on catching errors visually without any prioritization. Option C blindly trusts the model over annotators, which is dangerous — high confidence does not guarantee correctness, and this would corrupt the dataset without human review. Option D addresses a symptom rather than the root cause — forcing a model to memorize incorrect labels degrades generalization and bakes in the annotation errors permanently.
 
 **Task Statement:** 4.2
 
 ---
 
 ## Question 3
-**Scenario:** A drone survey team has 800,000 aerial images. They compute CLIP embeddings and run `compute_similarity()` to find near-duplicates. They identify 200,000 images as near-duplicates and plan to remove all of them before training. A team member objects, saying some "duplicates" might be valuable.
+**Scenario:** A robotics team has collected 100,000 images from multiple warehouse cameras over several months. They suspect significant redundancy because cameras have overlapping fields of view and the environment changes slowly. Storage and annotation costs are a concern. They want to remove near-duplicate images while keeping at least one representative from each visually distinct scene.
 
-When would removing near-duplicates actually hurt model performance?
+Which FiftyOne workflow best addresses this?
 
-A) Never — duplicates always waste compute and should be removed
-B) When the "duplicates" are actually images of the same location taken under different conditions (seasons, lighting, weather) that the model needs to learn to generalize across
-C) When the dataset is larger than 500,000 images, because large datasets benefit from redundancy
-D) When the embedding model used for similarity is more than one year old
+A) Sort images by file size and delete any that have identical byte counts
+B) Use `fob.compute_similarity()` to generate embeddings, then use `fob.compute_near_duplicates()` with a threshold to find near-duplicate clusters, review flagged pairs in the App, and delete confirmed duplicates
+C) Compare filenames and timestamps — if two images were captured within 1 second of each other, delete one
+D) Resize all images to 32x32 pixels and compare pixel values directly
 
 **Answer:** B
 
-**Explanation:** Near-duplicate detection based on embeddings captures semantic similarity. Two images of the same field — one in summer sunlight and one in winter overcast — may have very high embedding similarity but represent exactly the variation the model needs for robust performance. Removing these "duplicates" would remove the diversity that teaches the model to handle different conditions. The correct approach is to review a sample of the flagged duplicates, establish domain-appropriate similarity thresholds, and distinguish between true redundancy (burst-mode captures of identical scenes) and valuable variation (same location, different conditions). Option A is an oversimplification. Option C has no basis in practice. Option D is irrelevant to the fundamental question.
+**Explanation:** FiftyOne Brain's similarity and near-duplicate detection uses learned embeddings that capture semantic visual content, not superficial properties like filenames or byte counts. `compute_near_duplicates()` groups visually similar images into clusters based on an embedding distance threshold, letting you review flagged pairs in the App before deleting. This ensures you catch near-duplicates even when file metadata differs (different cameras, compression settings, or timestamps) while preserving human oversight. Option A fails because images with identical byte counts can look completely different (different content, same compression ratio), and visually identical images from different cameras will have different byte counts. Option C assumes temporal proximity equals visual similarity, which is false — two cameras might capture different scenes at the same timestamp, or the same camera might capture an identical static scene hours apart. Option D destroys spatial detail needed to distinguish similar-but-different scenes, and raw pixel comparison is brittle to minor camera variations like white balance or exposure shifts.
 
 **Task Statement:** 4.3
 
 ---
 
 ## Question 4
-**Scenario:** Your object detection dataset has the following class distribution:
+**Scenario:** A team is building a defect detection model for a manufacturing line with 12 defect categories. After collecting 60,000 labeled images, the model shows strong overall accuracy but catastrophically fails on "hairline crack" and "surface pit" classes. Before collecting more data, the team lead wants to understand the class distribution and confirm whether imbalance is the root cause.
 
-| Class | Annotations |
-|-------|------------|
-| car | 45,000 |
-| person | 32,000 |
-| truck | 8,500 |
-| bicycle | 350 |
-| motorcycle | 420 |
+How should they analyze this in FiftyOne?
 
-Your model achieves 94% mAP overall but only 31% AP on "bicycle." A manager suggests collecting 10,000 more bicycle images to balance the dataset.
+A) Export all labels to CSV and build a histogram in Excel
+B) Use `dataset.count_values("ground_truth.detections.label")` to get per-class counts, then visualize the distribution in the FiftyOne App's fields panel to confirm imbalance and identify which classes are underrepresented
+C) Assume imbalance is the issue and immediately start collecting more data for the failing classes
+D) Remove the underperforming classes from the dataset entirely so the model can focus on the remaining 10 classes
 
-What analysis should you perform in FiftyOne before committing to data collection?
+**Answer:** B
 
-A) Compute embeddings on the bicycle images to verify they represent diverse enough scenarios — 350 images from one intersection will not train a general bicycle detector regardless of how many more you collect from that same intersection
-B) No analysis needed — the low count clearly explains the low AP, so just collect more data
-C) Remove the bicycle class entirely since it will never reach the performance of the majority classes
-D) Apply 100x data augmentation to the existing bicycle images instead of collecting new data
-
-**Answer:** A
-
-**Explanation:** The count alone does not tell the full story. If the 350 bicycle annotations are from varied scenes, lighting conditions, and viewpoints, the representation might be adequate and the low AP might stem from a different problem (annotation quality, class confusion with motorcycle, etc.). If all 350 come from the same few scenes, collecting more from similar contexts will not help. FiftyOne's embedding visualization and uniqueness analysis can reveal whether the existing samples are diverse. Check for: annotation quality on existing bicycle samples, confusion between bicycle and motorcycle predictions, and whether the 350 samples cover the deployment scenarios. Then you can make an informed collection decision. Option B skips critical diagnostic work. Option C abandons a requirement without investigation. Option D can help but doesn't address potential diversity issues.
+**Explanation:** `count_values()` returns a dictionary of label-to-count mappings across all detections, giving you an immediate quantitative view of class distribution without leaving FiftyOne. The App's fields panel can display this distribution visually, making severe imbalances obvious at a glance. This data-driven approach confirms whether imbalance is actually the problem before committing resources to data collection. Option A adds unnecessary export-and-switch overhead when FiftyOne provides the same analysis natively — and manually building histograms introduces a disconnection from the visual data that makes follow-up investigation slower. Option C skips diagnosis entirely; the failure could stem from labeling inconsistency, class confusion between similar defect types, or poor image quality for those classes — collecting more data of the same problematic quality wastes resources. Option D eliminates valid business requirements; if hairline cracks and surface pits are real defects that reach customers, removing them from the model creates a blind spot in production quality control.
 
 **Task Statement:** 4.4
 
 ---
 
 ## Question 5
-**Scenario:** You run `compute_visualization()` with CLIP embeddings on a 50,000-image wildlife dataset. In the Embeddings panel, you notice that "deer" and "elk" samples form a single overlapping cluster, but the model's classification accuracy for both classes individually is only 62%. A colleague suggests adding more training epochs to improve separation.
+**Scenario:** A self-driving car team has a dataset of 200,000 frames with diverse driving conditions. Before training, they want to understand the internal structure of their data — whether certain driving scenarios cluster together, whether there are outlier frames that might represent sensor malfunctions, and which regions of the visual embedding space are underrepresented.
 
-What does the embedding visualization tell you about this problem, and what is the right next step?
+Which tool provides these insights?
 
-A) More epochs will eventually separate the clusters — the model just needs more training time
-B) The overlapping clusters indicate that CLIP embeddings cannot distinguish these classes at the visual feature level, suggesting either the classes need more visually distinctive training examples, the taxonomy should be revised (merge into one class with a downstream specialist), or the annotation criteria need clarification
-C) The visualization is just an approximation and should be ignored in favor of the accuracy metric
-D) Switch from CLIP to a larger embedding model, which will always produce better separation
+A) Train a classifier on the dataset and examine the confusion matrix
+B) Use `fob.compute_visualization()` to generate a UMAP or t-SNE embedding visualization, then explore clusters and outliers interactively in the FiftyOne App
+C) Sort the dataset alphabetically by filename and browse sequentially
+D) Calculate the mean pixel intensity of each frame and plot a histogram
 
 **Answer:** B
 
-**Explanation:** Embedding overlap means the images of deer and elk are semantically similar at the feature level — they look alike to the model. More training epochs (A) cannot create separation that doesn't exist in the feature space; it will just lead to overfitting. The visualization is revealing a structural problem: either the classes are genuinely hard to distinguish visually (requiring images with diagnostic features like antler shape), the annotation guidelines are inconsistent (annotators disagree on which is which), or the taxonomy is too fine-grained for the available visual evidence. Option C dismisses a powerful diagnostic tool. Option D might help marginally but doesn't address the fundamental data or taxonomy issue. The right workflow is: review the overlapping region in FiftyOne, check annotation consistency, and decide whether to improve the training data, merge classes, or build a specialized sub-classifier.
+**Explanation:** `fob.compute_visualization()` applies dimensionality reduction (UMAP or t-SNE) to learned image embeddings, producing a 2D scatter plot where visually similar images cluster together. Exploring this in the FiftyOne App lets you click on clusters to understand what driving scenarios they represent, identify isolated points as potential sensor malfunctions or edge cases, and spot sparse regions indicating underrepresented conditions. This gives a holistic structural view of the dataset that no single metric can provide. Option A requires training a model first, which is premature — the goal is to understand the data before training, and a confusion matrix only shows class-level errors, not data structure. Option C imposes an arbitrary ordering with no relationship to visual content and makes it impossible to detect clusters or outliers. Option D reduces each image to a single scalar, losing all semantic information — a nighttime highway and a nighttime parking lot would have similar mean intensity but represent completely different scenarios.
 
 **Task Statement:** 4.5
 
 ---
 
 ## Question 6
-**Scenario:** You run `compute_uniqueness()` on a 100,000-image manufacturing inspection dataset. You sort by uniqueness ascending and find that the bottom 5,000 samples (lowest uniqueness scores) are all images of "good" parts with no defects, taken under identical lighting.
+**Scenario:** An agricultural AI team has a drone image dataset with crop disease annotations. They want to create a view containing only images from the "corn" field group where disease severity is labeled "high" and the images were captured in July, excluding any samples that have already been reviewed by annotators. The dataset has `field_type`, `severity`, `capture_date`, and `reviewed` fields.
 
-Should you remove all 5,000 low-uniqueness samples?
+Which ViewStage chain is correct?
 
-A) Yes — they're redundant and removing them will improve training efficiency without affecting performance
-B) No — you should check what fraction of the total "good" class they represent first, because if removing them creates a class imbalance or reduces the model's ability to learn the baseline "good" appearance, you'd be trading one problem for another
-C) Yes — low uniqueness always means the samples are worthless
-D) No — you should never remove any samples from a dataset
+A) `dataset.match(F("field_type") == "corn").match(F("severity") == "high").match(F("capture_date").month() == 7).exclude(F("reviewed") == True)`
+B) `dataset.match((F("field_type") == "corn") & (F("severity") == "high") & (F("capture_date").month() == 7) & (F("reviewed") == False))`
+C) `dataset.select("field_type", "severity", "capture_date").match(F("reviewed") != True)`
+D) `dataset.sort_by("severity").take(100)`
 
 **Answer:** B
 
-**Explanation:** Low uniqueness means these samples are similar to each other, but that doesn't automatically make them expendable. If the "good" class has 60,000 samples and you remove 5,000 nearly identical ones, the impact is minimal. But if "good" only has 8,000 samples, removing 5,000 might leave too few examples for the model to learn the normal baseline appearance — which is critical for anomaly detection. Additionally, some apparent "redundancy" in manufacturing datasets is intentional: many images of normal parts ensure the model develops a robust representation of "good." The right approach is to analyze what you're removing relative to the overall distribution, then subsample the redundant cluster rather than eliminating it entirely.
+**Explanation:** Combining all conditions into a single `match()` call with the `&` operator is both correct and efficient — it applies one filter pass over the dataset rather than four sequential passes. The condition `F("reviewed") == False` excludes already-reviewed samples. Option A is functionally close but uses `exclude()` incorrectly — `exclude()` in FiftyOne expects sample IDs or a view to exclude, not a boolean expression. To filter on a boolean field, you should use `match(F("reviewed") == False)` as in Option B. Option C uses `select()`, which in FiftyOne selects fields to include in the view (like a SQL SELECT), not samples — it would show only those three fields on all samples without filtering anything. Option D ignores all filtering criteria and simply sorts by severity then takes 100 arbitrary samples, which has no relationship to the stated requirements.
 
-**Task Statement:** 4.5
+**Task Statement:** 4.1
 
 ---
 
 ## Question 7
-**Scenario:** You have a dataset split into train (70%), validation (15%), and test (15%). After running `compute_similarity()`, you discover that 1,200 images in the test set have near-exact duplicates in the training set. Your model's test accuracy is 96%.
+**Scenario:** A medical imaging team discovers that their chest X-ray classification model consistently predicts "pneumonia" with 0.92+ confidence on a batch of 500 images that were actually labeled "healthy" by board-certified radiologists. The team needs to determine whether the model has found genuine annotation mistakes or is systematically biased.
 
-How should you interpret the 96% test accuracy?
+What is the most rigorous FiftyOne-based investigation approach?
 
-A) The accuracy is valid — duplicates between splits don't affect evaluation
-B) The accuracy is inflated — the model has effectively memorized 1,200 test images during training, so the true generalization accuracy is lower than 96%. You need to deduplicate across splits and re-evaluate
-C) The accuracy is deflated — duplicates between splits make evaluation harder
-D) Remove the duplicates from the training set only and keep the test set intact
+A) Trust the model and relabel all 500 images as "pneumonia" automatically
+B) Isolate the 500 disputed samples into a view, use `fob.compute_visualization()` to see if they cluster with known pneumonia cases or with healthy cases in embedding space, cross-reference against samples with the highest model confidence per class, and flag ambiguous cases for expert re-review
+C) Delete the 500 images from the dataset since they are causing confusion
+D) Lower the model's confidence threshold to 0.5 so it stops making high-confidence mistakes
 
 **Answer:** B
 
-**Explanation:** Data leakage between train and test splits is one of the most insidious evaluation errors. When near-duplicate images exist in both splits, the model's test performance reflects partial memorization, not generalization. On those 1,200 leaked samples, the model is being "tested" on data it has already seen. The 96% accuracy overestimates real-world performance. The fix is to deduplicate across splits: for each duplicate pair, keep one copy in one split and remove it from the other. Then re-run evaluation. Option A ignores a well-documented evaluation pitfall. Option C is backwards. Option D is partially correct but incomplete — you need to ensure no leakage exists in either direction and then re-evaluate, not just remove from one side.
+**Explanation:** This approach combines multiple signals before making any data changes. If the 500 samples cluster with known pneumonia cases in embedding space, the model may have detected genuine annotation errors. If they cluster with healthy cases, the model likely has a systematic bias that needs architectural or training intervention. Cross-referencing with the highest-confidence correct predictions provides calibration context. Flagging for expert re-review ensures a domain specialist makes the final call on medical data — no automated decision should override board-certified radiologists without human verification. Option A blindly trusts model confidence over expert radiologists, which is dangerous in medical contexts — high confidence does not mean high correctness, and the model could have learned a spurious correlation (e.g., scanner artifacts). Option C destroys potentially valuable data and does not solve the underlying issue — the bias would remain in the model. Option D does not fix the problem; it just hides the symptom by making the model less confident about everything, degrading performance across all classes.
 
-**Task Statement:** 4.3
+**Task Statement:** 4.2
 
 ---
 
 ## Question 8
-**Scenario:** You're building a ViewStage pipeline to prepare a dataset review for your team. You need to: (1) find all images with at least one "defect" detection, (2) among those, keep only defect detections with confidence above 0.6, (3) sort by confidence descending, and (4) limit to the top 200. A colleague writes:
+**Scenario:** A retail analytics company has 80,000 product images across 500 SKU categories. They want to identify which product categories have insufficient visual diversity — for example, if all "blue t-shirt" images show the same angle and background, the model will fail on real-world variations. They need to quantify within-class visual diversity, not just count samples per class.
 
-```python
-view = (
-    dataset
-    .filter_labels("predictions", F("label") == "defect")
-    .filter_labels("predictions", F("confidence") > 0.6)
-    .sort_by("predictions.detections.confidence", reverse=True)
-    .limit(200)
-)
-```
+Which FiftyOne approach best measures within-class visual diversity?
 
-She gets an error on the `sort_by()` line. What is wrong, and how would you fix the pipeline?
+A) Count the number of samples per class — more samples always means more diversity
+B) Compute embeddings with `fob.compute_similarity()`, then for each class examine the distribution of pairwise embedding distances and use `fob.compute_visualization()` to visually inspect whether class clusters are tight (low diversity) or spread (high diversity)
+C) Compare file sizes within each class — varied file sizes indicate varied content
+D) Check the number of unique filenames per class as a proxy for diversity
 
-A) `sort_by()` cannot sort by a nested list field — you need to compute a sample-level aggregation first (like max confidence) and sort by that
-B) The two `filter_labels()` calls cancel each other out
-C) You should use `match()` instead of `filter_labels()` for the first filter
-D) `limit()` must come before `sort_by()`
+**Answer:** B
 
-**Answer:** A
+**Explanation:** Embedding-based analysis captures semantic visual diversity that surface-level metrics miss entirely. Computing pairwise embedding distances within each class quantifies how visually varied the samples are — a class with low mean pairwise distance and a tight cluster in the visualization has low diversity regardless of sample count. Classes with small, dense clusters in the UMAP visualization are candidates for additional data collection with varied angles, lighting, and backgrounds. Option A conflates quantity with diversity — 1,000 images of the same blue t-shirt on a white background at the same angle provides zero additional visual diversity beyond the first few images. The model needs variation in pose, lighting, background, and occlusion, not repetition. Option C has no meaningful correlation with visual content — image compression is affected by complexity, resolution, and format settings, not by whether the image shows a different angle or background. Option D is entirely irrelevant — filenames are arbitrary identifiers that carry no visual information whatsoever.
 
-**Explanation:** `sort_by()` operates at the sample level — it needs a single value per sample to define the sort order. `predictions.detections.confidence` is a list of values (one per detection), not a scalar, so FiftyOne cannot determine how to sort. The fix is to either: (1) chain `filter_labels()` to isolate the desired detections, then compute a sample-level max confidence using a ViewExpression like `F("predictions.detections.confidence").max()` and sort by that, or (2) use `set_field()` to store the max defect confidence as a sample-level field and sort by it. Additionally, the two `filter_labels()` calls can be combined into one: `filter_labels("predictions", (F("label") == "defect") & (F("confidence") > 0.6))`. Option B is incorrect — the calls apply sequentially and are compatible. Option C would change the semantics (removing entire samples vs. filtering labels within samples). Option D has the logic reversed — sorting must happen before limiting.
-
-**Task Statement:** 4.1
+**Task Statement:** 4.5
