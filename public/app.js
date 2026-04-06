@@ -129,7 +129,9 @@ function updateBreadcrumb() {
     return;
   }
   const name = currentProgramManifest?.shortName || currentProgramId;
-  bc.innerHTML = `<a href="#" onclick="exitProgram();return false" style="color:var(--primary)">Academy</a> <span style="color:var(--muted);margin:0 6px">\u203a</span> <span style="font-weight:600">${esc(name)}</span>`;
+  bc.innerHTML = `<a href="javascript:void(0)" style="color:var(--primary);cursor:pointer" id="breadcrumb-academy">Academy</a> <span style="color:var(--muted);margin:0 6px">\u203a</span> <span style="font-weight:600">${esc(name)}</span>`;
+  const bcLink = document.getElementById('breadcrumb-academy');
+  if (bcLink) bcLink.addEventListener('click', () => exitProgram());
 }
 
 // --------------- View Switching ---------------
@@ -1371,6 +1373,44 @@ async function loadExercises() {
 //  ADMIN DASHBOARD (local only)
 // ===============================================================
 
+function areaTagClass(area) {
+  if (area.includes('FiftyOne')) return 'fiftyone';
+  if (area.includes('Platform')) return 'platform';
+  if (area.includes('Program')) return 'program';
+  if (area.includes('Admin')) return 'admin';
+  return '';
+}
+
+function formatDate(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
+async function deployCommit(hash, btn) {
+  if (!confirm(`Deploy commit ${hash} to academy.planetcorps.ai?`)) return;
+  btn.disabled = true;
+  btn.textContent = 'Deploying...';
+  btn.classList.add('deploying');
+  try {
+    const result = await api(`/api/admin/deploy/${hash}`, { method: 'POST' });
+    btn.textContent = result.ok ? 'Deployed' : 'Failed';
+    btn.classList.remove('deploying');
+    if (result.ok) {
+      btn.classList.add('done');
+      btn.closest('.commit-tile').classList.add('deployed');
+      setTimeout(() => loadAdmin(), 2000);
+    } else {
+      btn.disabled = false;
+    }
+  } catch (err) {
+    btn.textContent = 'Failed';
+    btn.classList.remove('deploying');
+    btn.disabled = false;
+    alert('Deploy failed: ' + (err.message || 'Unknown error'));
+  }
+}
+
 async function loadAdmin() {
   const el = document.getElementById('view-admin');
   try {
@@ -1379,91 +1419,131 @@ async function loadAdmin() {
     const envClass = status.environment === 'local' ? 'local' : 'prod';
     const hasUncommitted = status.uncommitted.length > 0;
     const hasChanges = status.aheadCommits.length > 0;
+    const totalFiles = status.aheadCommits.reduce((sum, c) => sum + (c.files ? c.files.length : 0), 0);
 
     el.innerHTML = `
-      <h2 style="margin-bottom:8px">Deployment Admin</h2>
-      <p style="color:var(--muted);margin-bottom:20px">Manage local development vs production at <a href="${status.productionUrl}" target="_blank" style="color:var(--primary)">${status.productionUrl}</a></p>
+      <h2 style="margin-bottom:4px">Deployment Admin</h2>
+      <p style="color:var(--muted);margin-bottom:20px;font-size:0.85rem">
+        Local dev vs <a href="${status.productionUrl}" target="_blank" style="color:var(--primary)">${status.productionUrl}</a>
+      </p>
 
-      ${hasUncommitted ? `<div class="warning-box">&#9888; You have ${status.uncommitted.length} uncommitted change(s). Commit before deploying.</div>` : ''}
+      ${hasUncommitted ? `<div class="warning-box">&#9888; ${status.uncommitted.length} uncommitted change(s) — commit before deploying.</div>` : ''}
 
-      <div class="admin-grid">
+      <div class="admin-status-grid">
         <div class="admin-card">
-          <h3>Environment</h3>
-          <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
-            <span class="admin-badge ${envClass}">${status.environment}</span>
-            <span class="admin-badge ${branchClass}">${status.branch}</span>
+          <h3>Production</h3>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+            <span class="admin-badge main">main</span>
+            <span class="admin-badge prod">live</span>
           </div>
           <div style="font-size:0.82rem;color:var(--muted)">
-            <div><strong>Latest local:</strong> <code>${status.localCommit.hash}</code> ${status.localCommit.message}</div>
-            <div style="margin-top:4px"><strong>Production (main):</strong> <code>${status.mainCommit.hash}</code> ${status.mainCommit.message}</div>
+            <code style="color:var(--primary);font-weight:600">${status.mainCommit.hash}</code> ${esc(status.mainCommit.message)}
           </div>
+          <div style="font-size:0.75rem;color:var(--muted);margin-top:4px">${formatDate(status.mainCommit.date)}</div>
+          <a href="${status.productionUrl}" target="_blank" style="display:inline-block;margin-top:10px;font-size:0.8rem;color:var(--primary);font-weight:500">View live site &rarr;</a>
         </div>
 
         <div class="admin-card">
-          <h3>Changes Ready to Deploy</h3>
+          <h3>Local Dev</h3>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+            <span class="admin-badge ${branchClass}">${status.branch}</span>
+            <span class="admin-badge ${envClass}">${status.environment}</span>
+          </div>
+          <div style="font-size:0.82rem;color:var(--muted)">
+            <code style="color:var(--primary);font-weight:600">${status.localCommit.hash}</code> ${esc(status.localCommit.message)}
+          </div>
+          <div style="font-size:0.75rem;color:var(--muted);margin-top:4px">${formatDate(status.localCommit.date)}</div>
           ${hasChanges
-            ? `<div style="font-size:0.9rem;font-weight:600;color:var(--primary);margin-bottom:8px">${status.aheadCommits.length} commit(s), ${status.changedFiles.length} file(s)</div>`
-            : `<div style="font-size:0.9rem;color:var(--muted)">Up to date with production. Nothing to deploy.</div>`
+            ? `<div style="margin-top:10px;font-size:0.85rem;font-weight:600;color:#f59e0b">${status.aheadCommits.length} commit(s) ahead of production</div>`
+            : `<div style="margin-top:10px;font-size:0.85rem;color:var(--muted)">Up to date with production</div>`
           }
-          ${hasChanges ? `
-            <ul class="commit-list">
-              ${status.aheadCommits.map(c => `<li><span class="hash">${c.hash}</span>${c.message}</li>`).join('')}
-            </ul>
-          ` : ''}
         </div>
       </div>
 
-      ${hasChanges && status.changedFiles.length > 0 ? `
-        <div class="admin-card" style="margin-bottom:20px">
-          <h3>Changed Files</h3>
-          <ul class="file-list">
-            ${status.changedFiles.map(f => {
-              const cls = f.status === 'A' ? 'added' : f.status === 'D' ? 'deleted' : 'modified';
-              const label = f.status === 'A' ? '+' : f.status === 'D' ? '-' : '~';
-              return `<li class="${cls}">${label} ${f.file}</li>`;
-            }).join('')}
-          </ul>
+      ${hasChanges ? `
+        <h3 style="margin-bottom:12px;font-size:0.95rem">Changes on Dev (not yet on Production)</h3>
+        <div class="commit-tiles">
+          ${status.aheadCommits.map((c, i) => `
+            <div class="commit-tile" data-hash="${c.hash}">
+              <div class="commit-tile-body">
+                <div class="commit-tile-header">
+                  <span class="hash">${c.hash}</span>
+                  <span class="msg">${esc(c.message)}</span>
+                </div>
+                <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:4px">
+                  ${(c.areas || []).map(a => `<span class="area-tag ${areaTagClass(a)}">${esc(a)}</span>`).join('')}
+                  <span class="date">${formatDate(c.date)}</span>
+                </div>
+                ${c.files && c.files.length > 0 ? `
+                  <button class="commit-tile-toggle" data-target="files-${i}">${c.files.length} file(s) changed</button>
+                  <div class="commit-tile-files" id="files-${i}">
+                    <ul>${c.files.map(f => `<li>${esc(f)}</li>`).join('')}</ul>
+                  </div>
+                ` : ''}
+              </div>
+              <button class="deploy-single-btn" ${hasUncommitted ? 'disabled' : ''} data-hash="${c.hash}">Deploy</button>
+            </div>
+          `).join('')}
         </div>
-      ` : ''}
 
-      <div class="admin-card">
-        <h3>Deploy to Production</h3>
-        <p style="font-size:0.82rem;color:var(--muted);margin-bottom:16px">
-          This will merge dev into main, push to GitHub, and deploy to Azure (academy.planetcorps.ai).
-        </p>
-        <button class="deploy-btn" id="deploy-btn" ${!hasChanges || hasUncommitted ? 'disabled' : ''}>
-          ${!hasChanges ? 'Nothing to Deploy' : hasUncommitted ? 'Commit Changes First' : `Deploy ${status.aheadCommits.length} Commit(s) to Production`}
-        </button>
-        <div class="deploy-log" id="deploy-log"></div>
-      </div>
+        <div class="admin-card" style="margin-top:8px">
+          <h3>Deploy All</h3>
+          <p style="font-size:0.82rem;color:var(--muted);margin-bottom:12px">Merge all ${status.aheadCommits.length} commit(s) to main and deploy to Azure.</p>
+          <button class="deploy-all-btn" id="deploy-all-btn" ${hasUncommitted ? 'disabled' : ''}>
+            Deploy All ${status.aheadCommits.length} Commits
+          </button>
+          <div class="deploy-log" id="deploy-log"></div>
+        </div>
+      ` : `
+        <div class="admin-card" style="text-align:center;padding:40px">
+          <div style="font-size:1.5rem;margin-bottom:8px">&#10003;</div>
+          <div style="font-size:0.95rem;font-weight:600;color:var(--text)">All caught up</div>
+          <div style="font-size:0.85rem;color:var(--muted)">Local dev and production are in sync.</div>
+        </div>
+      `}
     `;
 
-    // Deploy button handler
-    const deployBtn = document.getElementById('deploy-btn');
-    if (deployBtn && hasChanges && !hasUncommitted) {
-      deployBtn.addEventListener('click', async () => {
-        if (!confirm(`Deploy ${status.aheadCommits.length} commit(s) to academy.planetcorps.ai?`)) return;
-        deployBtn.disabled = true;
-        deployBtn.textContent = 'Deploying...';
+    // Wire up file toggle buttons
+    document.querySelectorAll('.commit-tile-toggle').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const target = document.getElementById(btn.dataset.target);
+        if (target) {
+          target.classList.toggle('open');
+          btn.textContent = target.classList.contains('open') ? 'hide files' : btn.textContent.replace('hide files', '') || (target.querySelectorAll('li').length + ' file(s) changed');
+        }
+      });
+    });
+
+    // Wire up individual deploy buttons
+    document.querySelectorAll('.deploy-single-btn').forEach(btn => {
+      if (!hasUncommitted) {
+        btn.addEventListener('click', () => deployCommit(btn.dataset.hash, btn));
+      }
+    });
+
+    // Wire up deploy-all button
+    const deployAllBtn = document.getElementById('deploy-all-btn');
+    if (deployAllBtn && hasChanges && !hasUncommitted) {
+      deployAllBtn.addEventListener('click', async () => {
+        if (!confirm(`Deploy all ${status.aheadCommits.length} commit(s) to academy.planetcorps.ai?`)) return;
+        deployAllBtn.disabled = true;
+        deployAllBtn.textContent = 'Deploying...';
         const logEl = document.getElementById('deploy-log');
         logEl.classList.add('visible');
-        logEl.textContent = 'Starting deployment...\\n';
-
+        logEl.textContent = 'Starting full deployment...\\n';
         try {
           const result = await api('/api/admin/deploy', { method: 'POST' });
-          if (result.log) {
-            logEl.textContent = result.log.join('\\n');
-          }
+          if (result.log) logEl.textContent = result.log.join('\\n');
           logEl.textContent += '\\n\\n' + (result.ok ? '=== DEPLOYMENT SUCCESSFUL ===' : '=== DEPLOYMENT FAILED ===');
-          deployBtn.textContent = result.ok ? 'Deployed!' : 'Failed';
+          deployAllBtn.textContent = result.ok ? 'Deployed!' : 'Failed';
           if (result.ok) {
-            deployBtn.style.background = '#166534';
+            deployAllBtn.style.background = '#22c55e';
             setTimeout(() => loadAdmin(), 3000);
           }
         } catch (err) {
           logEl.textContent += '\\nError: ' + (err.message || 'Deployment failed');
-          deployBtn.textContent = 'Failed — Retry';
-          deployBtn.disabled = false;
+          deployAllBtn.textContent = 'Failed — Retry';
+          deployAllBtn.disabled = false;
         }
       });
     }
@@ -1501,6 +1581,7 @@ function showApp(user) {
   // Check if admin is available (local only)
   const adminTab = document.getElementById('admin-tab');
   if (adminTab) {
+    adminTab.onclick = () => switchView('admin');
     api('/api/admin/status').then(() => {
       adminTab.style.display = '';
     }).catch(() => {

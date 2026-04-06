@@ -1242,6 +1242,18 @@ function git(cmd) {
   return execSync(cmd, { cwd: ROOT, encoding: 'utf8', timeout: 30000 }).trim();
 }
 
+function categorizeFiles(files) {
+  const areas = new Set();
+  for (const f of files) {
+    if (f.startsWith('03-FiftyOne/')) areas.add('FiftyOne Module');
+    else if (f.startsWith('02-LeanAISigma/') || f.startsWith('programs/')) areas.add('Program Content');
+    else if (f.startsWith('public/') || f === 'server.js') areas.add('Platform');
+    else if (f.includes('admin') || f.includes('Admin')) areas.add('Admin (local only)');
+    else areas.add('Other');
+  }
+  return [...areas];
+}
+
 app.get('/api/admin/status', requireLocal, (req, res) => {
   try {
     const branch = git('git rev-parse --abbrev-ref HEAD');
@@ -1255,27 +1267,22 @@ app.get('/api/admin/status', requireLocal, (req, res) => {
       mainCommit = { hash: mHash, message: mMsg, date: mDate };
     } catch (e) { /* main may not exist */ }
 
+    // Per-commit details with files and areas
     let aheadCommits = [];
     try {
       const ahead = git('git log main..HEAD --format="%h|%s|%ci"');
       if (ahead) {
         aheadCommits = ahead.split('\n').map(line => {
           const [hash, message, date] = line.split('|');
-          return { hash, message, date };
+          let files = [];
+          try {
+            const diff = git(`git diff-tree --no-commit-id --name-only -r ${hash}`);
+            if (diff) files = diff.split('\n').filter(Boolean);
+          } catch (e) {}
+          return { hash, message, date, files, areas: categorizeFiles(files) };
         });
       }
     } catch (e) { /* no commits ahead */ }
-
-    let changedFiles = [];
-    try {
-      const diff = git('git diff main..HEAD --name-status');
-      if (diff) {
-        changedFiles = diff.split('\n').map(line => {
-          const [status, ...fileParts] = line.split('\t');
-          return { status: status.trim(), file: fileParts.join('\t') };
-        });
-      }
-    } catch (e) { /* no diff */ }
 
     let uncommitted = [];
     try {
@@ -1291,7 +1298,6 @@ app.get('/api/admin/status', requireLocal, (req, res) => {
       localCommit: { hash: localHash, message: localMsg, date: localDate },
       mainCommit,
       aheadCommits,
-      changedFiles,
       uncommitted,
       productionUrl: 'https://academy.planetcorps.ai'
     });
@@ -1300,57 +1306,84 @@ app.get('/api/admin/status', requireLocal, (req, res) => {
   }
 });
 
-app.post('/api/admin/deploy', requireLocal, async (req, res) => {
+// Cherry-pick a single commit to main and deploy
+app.post('/api/admin/deploy/:commitHash', requireLocal, (req, res) => {
+  const { commitHash } = req.params;
+  const log = [];
   try {
-    const log = [];
     const branch = git('git rev-parse --abbrev-ref HEAD');
 
-    // Check for uncommitted changes
     const status = git('git status --porcelain');
     if (status) {
-      return res.status(400).json({ error: 'Uncommitted changes. Commit before deploying.', uncommitted: status.split('\n') });
+      return res.status(400).json({ error: 'Uncommitted changes. Commit before deploying.' });
     }
 
-    // Check if there are changes to deploy
+    log.push(`Cherry-picking ${commitHash} to main...`);
+    git('git checkout main');
+    try {
+      git(`git cherry-pick ${commitHash}`);
+      log.push('Cherry-pick successful.');
+    } catch (e) {
+      log.push('Cherry-pick conflict — aborting.');
+      try { git('git cherry-pick --abort'); } catch (e2) {}
+      git(`git checkout ${branch}`);
+      return res.status(409).json({ error: 'Cherry-pick conflict. This commit may depend on other commits. Try deploying dependencies first.', log });
+    }
+
+    log.push('Pushing to GitHub...');
+    try { git('git push origin main'); log.push('GitHub push complete.'); }
+    catch (e) { log.push('GitHub push failed: ' + e.message); }
+
+    log.push('Deploying to Azure...');
+    try { git('git push azure main:master'); log.push('Azure deployment complete.'); }
+    catch (e) { log.push('Azure push failed: ' + e.message); }
+
+    log.push(`Switching back to ${branch}...`);
+    git(`git checkout ${branch}`);
+    log.push('Done.');
+
+    res.json({ ok: true, message: `Deployed ${commitHash} to production.`, log });
+  } catch (err) {
+    try { git('git checkout dev'); } catch (e) {}
+    res.status(500).json({ error: 'Deployment failed', details: err.message, log });
+  }
+});
+
+// Deploy all: merge dev to main
+app.post('/api/admin/deploy', requireLocal, (req, res) => {
+  const log = [];
+  try {
+    const branch = git('git rev-parse --abbrev-ref HEAD');
+    const status = git('git status --porcelain');
+    if (status) {
+      return res.status(400).json({ error: 'Uncommitted changes. Commit before deploying.' });
+    }
     let ahead = '';
     try { ahead = git(`git log main..${branch} --oneline`); } catch (e) {}
     if (!ahead) {
-      return res.json({ ok: true, message: 'Nothing to deploy — dev is up to date with main.', log: [] });
+      return res.json({ ok: true, message: 'Nothing to deploy.', log: [] });
     }
 
-    // Merge to main
     log.push('Switching to main...');
     git('git checkout main');
     log.push(`Merging ${branch} into main...`);
     git(`git merge ${branch} --no-edit`);
     log.push('Merge complete.');
 
-    // Push to GitHub
     log.push('Pushing to GitHub...');
-    try {
-      git('git push origin main');
-      log.push('GitHub push complete.');
-    } catch (e) {
-      log.push('GitHub push failed: ' + e.message);
-    }
+    try { git('git push origin main'); log.push('GitHub push complete.'); }
+    catch (e) { log.push('GitHub push failed: ' + e.message); }
 
-    // Push to Azure
     log.push('Deploying to Azure...');
-    try {
-      git('git push azure main:master');
-      log.push('Azure deployment complete.');
-    } catch (e) {
-      log.push('Azure push failed: ' + e.message);
-    }
+    try { git('git push azure main:master'); log.push('Azure deployment complete.'); }
+    catch (e) { log.push('Azure push failed: ' + e.message); }
 
-    // Switch back to dev
     log.push(`Switching back to ${branch}...`);
     git(`git checkout ${branch}`);
     log.push('Done.');
 
     res.json({ ok: true, message: 'Deployment successful!', log });
   } catch (err) {
-    // Try to switch back to dev on error
     try { git('git checkout dev'); } catch (e) {}
     res.status(500).json({ error: 'Deployment failed', details: err.message });
   }

@@ -58,7 +58,7 @@ a:hover{text-decoration:underline}
 .tab.active{color:var(--primary);border-bottom-color:var(--primary)}
 
 /* ── Main ── */
-.main{padding-top:88px;padding-bottom:60px;min-height:100vh}
+.main{padding-top:120px;padding-bottom:60px;min-height:100vh}
 
 /* ── Views ── */
 .view{display:none;animation:fadeUp .35s var(--ease)}
@@ -239,29 +239,45 @@ a:hover{text-decoration:underline}
 .footer strong{color:var(--text);font-weight:600}
 
 /* ── Admin Dashboard ── */
-.admin-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px}
+.admin-status-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px}
 .admin-card{background:#fff;border:1px solid var(--border);border-radius:12px;padding:20px}
 .admin-card h3{margin:0 0 12px;font-size:0.95rem;color:var(--text)}
-.admin-badge{display:inline-block;padding:3px 10px;border-radius:12px;font-size:0.75rem;font-weight:700;text-transform:uppercase}
+.admin-badge{display:inline-block;padding:3px 10px;border-radius:12px;font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.03em}
 .admin-badge.dev{background:#dcfce7;color:#166534}
 .admin-badge.main{background:#fef2f2;color:#991b1b}
 .admin-badge.local{background:#dbeafe;color:#1e40af}
 .admin-badge.prod{background:#fef3c7;color:#92400e}
-.commit-list{list-style:none;padding:0;margin:8px 0 0}
-.commit-list li{padding:8px 12px;border-left:3px solid var(--primary);margin-bottom:6px;background:#f9fafb;border-radius:0 6px 6px 0;font-size:0.82rem}
-.commit-list .hash{color:var(--primary);font-family:monospace;font-weight:600;margin-right:8px}
-.file-list{list-style:none;padding:0;margin:8px 0 0}
-.file-list li{padding:4px 8px;font-size:0.8rem;font-family:monospace;color:var(--muted)}
-.file-list .added{color:#166534}
-.file-list .modified{color:#92400e}
-.file-list .deleted{color:#991b1b}
-.deploy-btn{background:var(--primary);color:#fff;border:none;padding:14px 32px;border-radius:10px;font-size:1rem;font-weight:700;cursor:pointer;width:100%;transition:background .15s}
-.deploy-btn:hover{background:#3d6b4a}
-.deploy-btn:disabled{background:#ccc;cursor:not-allowed}
+.commit-tiles{display:flex;flex-direction:column;gap:12px;margin-bottom:24px}
+.commit-tile{background:#fff;border:1px solid var(--border);border-left:4px solid #f59e0b;border-radius:0 12px 12px 0;padding:16px 20px;display:flex;align-items:flex-start;justify-content:space-between;gap:16px;transition:border-color .15s}
+.commit-tile.deployed{border-left-color:#22c55e;opacity:0.6}
+.commit-tile-body{flex:1;min-width:0}
+.commit-tile-header{display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap}
+.commit-tile .hash{font-family:monospace;font-weight:700;color:var(--primary);font-size:0.85rem}
+.commit-tile .msg{font-weight:600;font-size:0.88rem;color:var(--text)}
+.commit-tile .date{font-size:0.75rem;color:var(--muted)}
+.commit-tile .area-tag{display:inline-block;padding:2px 8px;border-radius:8px;font-size:0.7rem;font-weight:600;background:#f3f4f6;color:#6b7280}
+.commit-tile .area-tag.fiftyone{background:#fff7ed;color:#c2410c}
+.commit-tile .area-tag.platform{background:#eff6ff;color:#1d4ed8}
+.commit-tile .area-tag.program{background:#f0fdf4;color:#166534}
+.commit-tile .area-tag.admin{background:#fef2f2;color:#991b1b}
+.commit-tile-files{margin-top:8px;display:none}
+.commit-tile-files.open{display:block}
+.commit-tile-files ul{list-style:none;padding:0;margin:4px 0 0}
+.commit-tile-files li{padding:2px 8px;font-size:0.78rem;font-family:monospace;color:var(--muted)}
+.commit-tile-toggle{font-size:0.78rem;color:var(--primary);cursor:pointer;border:none;background:none;padding:0;font-weight:500}
+.commit-tile-toggle:hover{text-decoration:underline}
+.deploy-single-btn{background:var(--primary);color:#fff;border:none;padding:8px 18px;border-radius:8px;font-size:0.82rem;font-weight:600;cursor:pointer;white-space:nowrap;transition:background .15s;flex-shrink:0}
+.deploy-single-btn:hover{background:#3d6b4a}
+.deploy-single-btn:disabled{background:#ccc;cursor:not-allowed}
+.deploy-single-btn.deploying{background:#f59e0b}
+.deploy-single-btn.done{background:#22c55e}
+.deploy-all-btn{background:var(--primary);color:#fff;border:none;padding:14px 32px;border-radius:10px;font-size:1rem;font-weight:700;cursor:pointer;width:100%;transition:background .15s}
+.deploy-all-btn:hover{background:#3d6b4a}
+.deploy-all-btn:disabled{background:#ccc;cursor:not-allowed}
 .deploy-log{background:#1e1e1e;color:#d4d4d4;padding:16px;border-radius:8px;font-family:monospace;font-size:0.8rem;max-height:300px;overflow-y:auto;margin-top:12px;white-space:pre-wrap;display:none}
 .deploy-log.visible{display:block}
 .warning-box{background:#fef3c7;border:1px solid #fbbf24;border-radius:8px;padding:12px 16px;font-size:0.85rem;color:#92400e;margin-bottom:16px}
-@media(max-width:768px){.admin-grid{grid-template-columns:1fr}}
+@media(max-width:768px){.admin-status-grid{grid-template-columns:1fr}}
 
 /* ── Utilities ── */
 .hidden{display:none!important}
@@ -335,7 +351,7 @@ a:hover{text-decoration:underline}
   .vdiv{display:none}
   #nav{width:100%;gap:2px;padding-bottom:4px}
   .tab{padding:6px 10px;font-size:0.8rem}
-  .main{padding-top:110px}
+  .main{padding-top:140px}
   .stat-grid{grid-template-columns:repeat(2,1fr)}
   .domain-grid{grid-template-columns:repeat(3,1fr)}
   .reader-toc{display:none}
